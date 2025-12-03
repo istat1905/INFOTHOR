@@ -1,18 +1,7 @@
-# Streamlit compatible avec rich <14
-streamlit==1.36.0
-rich==13.5.2
-
-# Scraping et parsing
+streamlit==1.29.0
 requests==2.31.0
 beautifulsoup4==4.12.2
-lxml==4.9.3
-
-# Manipulation de données et Excel
 pandas==2.1.4
 openpyxl==3.1.2
-XlsxWriter==3.1.9
-
-# Markdown et utilitaires
-markdown-it-py==2.2.0
-mdurl==0.1.2
-pygments==2.19.2
+xlsxwriter==3.1.9
+lxml==4.9.3
