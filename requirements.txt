@@ -1,6 +1,6 @@
-# Streamlit
+# Streamlit compatible avec rich <14
 streamlit==1.36.0
-rich<14,>=10.14.0
+rich==13.5.2
 
 # Scraping et parsing
 requests==2.31.0
@@ -12,7 +12,7 @@ pandas==2.1.4
 openpyxl==3.1.2
 XlsxWriter==3.1.9
 
-# Utilitaires pour Streamlit
+# Markdown et utilitaires
 markdown-it-py==2.2.0
 mdurl==0.1.2
 pygments==2.19.2
