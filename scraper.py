@@ -10,7 +10,6 @@ class AuchanScraper:
     """
 
     def __init__(self, username: str, password: str):
-        # ✅ Renommé pour éviter le conflit avec la méthode login()
         self.username = username
         self.password = password
         self.base_url = "https://auchan.atgpedi.net"
@@ -36,19 +35,30 @@ class AuchanScraper:
             print("=" * 50)
             
             # Étape 1: Accéder à la page d'accueil
-            print("\n1. Accès page d'accueil...")
+            print("\n1. Accès page d'accueil Auchan...")
             response = self.session.get(f"{self.base_url}/index.php")
             print(f"   Status: {response.status_code}")
-            print(f"   URL finale: {response.url}")
+            print(f"   URL: {response.url}")
             
             if response.status_code != 200:
-                print(f"   ❌ Erreur page d'accueil: {response.status_code}")
+                print(f"   ❌ Erreur: {response.status_code}")
                 return False
 
-            # Étape 2: Auth SSO
-            print("\n2. Auth SSO...")
-            auth_url = f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier"
-            response = self.session.get(auth_url, allow_redirects=True)
+            # Étape 2: Cliquer sur "M'identifier avec mon compte @GP"
+            print("\n2. Redirection vers SSO @GP...")
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Chercher le lien SSO (visible dans l'image 1)
+            sso_link = soup.find('a', {'class': 'btn btn-outline-red atgp btn-lg btn-block'})
+            if sso_link:
+                sso_url = sso_link.get('href', '')
+                print(f"   Lien SSO trouvé: {sso_url[:50]}...")
+            else:
+                # Fallback sur l'URL SSO directe
+                sso_url = f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier"
+                print(f"   Utilisation URL SSO par défaut")
+            
+            response = self.session.get(sso_url, allow_redirects=True)
             print(f"   Status: {response.status_code}")
             print(f"   URL finale: {response.url}")
             
@@ -56,47 +66,75 @@ class AuchanScraper:
                 print(f"   ❌ Erreur SSO: {response.status_code}")
                 return False
 
-            # Étape 3: Récupérer le formulaire de connexion
-            print("\n3. Recherche formulaire...")
+            # Étape 3: On devrait être sur accounts.atgpedi.net/login
+            print("\n3. Page de connexion @GP...")
             soup = BeautifulSoup(response.text, 'html.parser')
-            form = soup.find('form')
+            
+            # Chercher le formulaire (visible dans l'image 2)
+            form = soup.find('form', {'class': 'form'})
+            if not form:
+                form = soup.find('form')
             
             if not form:
                 print("   ❌ Formulaire non trouvé")
-                print(f"   Contenu page (200 premiers chars): {response.text[:200]}")
+                print(f"   URL actuelle: {response.url}")
                 return False
             
-            print("   ✅ Formulaire trouvé")
+            print("   ✅ Formulaire de connexion trouvé")
 
+            # Récupérer l'action du formulaire
             form_action = form.get('action', '')
-            print(f"   Action: {form_action}")
+            if not form_action:
+                form_action = response.url
+            elif not form_action.startswith('http'):
+                base = 'https://accounts.atgpedi.net'
+                form_action = f"{base}{form_action}"
             
-            if not form_action.startswith('http'):
-                form_action = f"https://www.atgp.net{form_action}"
-            print(f"   Action complète: {form_action}")
+            print(f"   Action: {form_action}")
 
-            # Préparer les données
-            login_data = {
-                'username': self.username,
-                'password': self.password
-            }
-
-            # Ajouter les champs cachés
-            hidden_fields = []
-            for input_field in form.find_all('input', type='hidden'):
+            # Préparer les données de connexion
+            login_data = {}
+            
+            # Récupérer tous les champs du formulaire
+            for input_field in form.find_all('input'):
                 name = input_field.get('name')
                 value = input_field.get('value', '')
+                input_type = input_field.get('type', 'text')
+                
                 if name:
-                    login_data[name] = value
-                    hidden_fields.append(f"{name}={value[:20]}...")
-            
-            print(f"   Champs cachés: {len(hidden_fields)}")
-            for field in hidden_fields:
-                print(f"     - {field}")
+                    if input_type == 'hidden':
+                        login_data[name] = value
+                        print(f"   Champ caché: {name} = {value[:30]}...")
+                    elif 'username' in name.lower() or 'email' in name.lower():
+                        login_data[name] = self.username
+                        print(f"   Champ username: {name}")
+                    elif 'password' in name.lower():
+                        login_data[name] = self.password
+                        print(f"   Champ password: {name}")
 
-            # Soumettre le formulaire
-            print("\n4. Soumission formulaire...")
-            response = self.session.post(form_action, data=login_data, allow_redirects=True)
+            # Vérifier qu'on a bien les identifiants
+            has_username = any('username' in k.lower() or 'email' in k.lower() for k in login_data.keys())
+            has_password = any('password' in k.lower() for k in login_data.keys())
+            
+            if not has_username or not has_password:
+                print("   ⚠️ Champs username/password non détectés, ajout manuel...")
+                login_data['_username'] = self.username
+                login_data['_password'] = self.password
+
+            print(f"   Total champs formulaire: {len(login_data)}")
+
+            # Étape 4: Soumettre le formulaire
+            print("\n4. Soumission du formulaire...")
+            response = self.session.post(
+                form_action, 
+                data=login_data, 
+                allow_redirects=True,
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Origin': 'https://accounts.atgpedi.net',
+                    'Referer': response.url
+                }
+            )
             print(f"   Status: {response.status_code}")
             print(f"   URL finale: {response.url}")
             
@@ -104,27 +142,42 @@ class AuchanScraper:
                 print(f"   ❌ Erreur soumission: {response.status_code}")
                 return False
 
-            # Vérifier succès
+            # Étape 5: Vérifier le succès
             print("\n5. Vérification connexion...")
             page_text = response.text.lower()
             
-            success_keywords = ['bonjour', 'commandes', 'bienvenue', 'dashboard']
-            failure_keywords = ['erreur', 'error', 'incorrect', 'invalid', 'échec']
+            # Vérifier qu'on est bien de retour sur auchan.atgpedi.net
+            if 'auchan.atgpedi.net' in response.url:
+                print("   ✅ Retour sur le portail Auchan")
             
-            found_success = [kw for kw in success_keywords if kw in page_text]
-            found_failure = [kw for kw in failure_keywords if kw in page_text]
+            success_indicators = [
+                'bonjour' in page_text,
+                'commandes' in page_text,
+                'logout' in page_text,
+                'déconnexion' in page_text,
+                'mon compte' in page_text
+            ]
             
-            print(f"   Mots-clés succès trouvés: {found_success}")
-            print(f"   Mots-clés échec trouvés: {found_failure}")
-            print(f"   Titre page: {soup.find('title').text if soup.find('title') else 'N/A'}")
+            failure_indicators = [
+                'invalid' in page_text,
+                'incorrect' in page_text,
+                'erreur' in page_text,
+                'error' in page_text
+            ]
             
-            if found_success and not found_failure:
+            success_count = sum(success_indicators)
+            failure_count = sum(failure_indicators)
+            
+            print(f"   Indicateurs de succès: {success_count}/5")
+            print(f"   Indicateurs d'échec: {failure_count}")
+            
+            if success_count >= 1 and failure_count == 0:
                 print("\n✅ CONNEXION RÉUSSIE!")
                 print("=" * 50)
                 return True
             else:
                 print("\n❌ CONNEXION ÉCHOUÉE")
-                print(f"   Extrait page (200 premiers chars): {response.text[:200]}")
+                print(f"   Vérifiez vos identifiants")
                 print("=" * 50)
                 return False
 
