@@ -94,7 +94,7 @@ class AuchanScraper:
         """
         try:
             orders_url = f"{self.base_url}/gui.php?page=documents_commandes_liste"
-            clear_filters_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=100"
+            clear_filters_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=50"
             self.session.get(clear_filters_url)
             time.sleep(1)
             response = self.session.get(orders_url + "&lines_per_page=1000")
