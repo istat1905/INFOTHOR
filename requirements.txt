@@ -1,7 +1,6 @@
 streamlit==1.31.0
 pandas==2.2.0
-selenium==4.17.2
+playwright==1.40.0
 beautifulsoup4==4.12.3
-webdriver-manager==4.0.1
 xlsxwriter==3.1.9
 openpyxl==3.1.2
