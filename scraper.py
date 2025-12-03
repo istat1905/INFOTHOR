@@ -4,10 +4,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 from bs4 import BeautifulSoup
 import re
 from typing import List, Dict, Optional
 import time
+import os
 
 class AuchanScraper:
     """
@@ -22,16 +25,37 @@ class AuchanScraper:
         
     def _init_driver(self):
         """Initialise le driver Chrome avec les bonnes options"""
+        print("🔧 Initialisation du navigateur...")
+        
         chrome_options = Options()
-        chrome_options.add_argument('--headless')  # Mode sans interface
+        
+        # Options pour Streamlit Cloud
+        chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
         
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.implicitly_wait(10)
+        # Désactiver les logs verbeux
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')
+        
+        try:
+            # Utiliser webdriver-manager pour gérer Chrome automatiquement
+            service = Service(
+                ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+            )
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.driver.set_page_load_timeout(30)
+            self.driver.implicitly_wait(10)
+            print("✅ Navigateur initialisé")
+            
+        except Exception as e:
+            print(f"❌ Erreur initialisation navigateur: {e}")
+            raise
 
     def login(self) -> bool:
         """
@@ -40,7 +64,7 @@ class AuchanScraper:
             bool: True si connexion réussie, False sinon
         """
         try:
-            print("=" * 50)
+            print("\n" + "=" * 50)
             print("DEBUT CONNEXION")
             print("=" * 50)
             
@@ -48,42 +72,37 @@ class AuchanScraper:
                 self._init_driver()
             
             # Étape 1: Accéder à la page d'accueil
-            print("\n1. Accès page d'accueil Auchan...")
+            print("\n1. Accès page d'accueil...")
             self.driver.get(f"{self.base_url}/index.php")
             time.sleep(2)
-            print(f"   URL: {self.driver.current_url}")
+            print(f"   ✅ Page chargée")
             
-            # Étape 2: Cliquer sur "M'identifier avec mon compte @GP"
-            print("\n2. Clic sur le bouton SSO @GP...")
+            # Étape 2: Cliquer sur le bouton SSO
+            print("\n2. Clic sur le bouton SSO...")
             try:
-                # Attendre et cliquer sur le bouton SSO (visible dans Image 1)
                 sso_button = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn.btn-outline-red.atgp'))
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn.btn-outline-red.atgp, a[href*="sso"]'))
                 )
                 sso_button.click()
                 time.sleep(3)
-                print(f"   ✅ Bouton SSO cliqué")
-                print(f"   URL: {self.driver.current_url}")
-            except Exception as e:
-                print(f"   ⚠️ Bouton SSO non trouvé, tentative URL directe...")
+                print(f"   ✅ Redirection SSO")
+            except:
+                print(f"   ⚠️ Tentative URL directe...")
                 self.driver.get(f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier")
                 time.sleep(3)
             
-            # Étape 3: Remplir le formulaire de connexion (visible dans Image 2)
-            print("\n3. Remplissage du formulaire de connexion...")
+            # Étape 3: Remplir le formulaire
+            print("\n3. Remplissage formulaire...")
             
-            # Attendre que la page de connexion soit chargée
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.NAME, "_username"))
             )
             
-            # Remplir l'email
             email_field = self.driver.find_element(By.NAME, "_username")
             email_field.clear()
             email_field.send_keys(self.username)
-            print(f"   ✅ Email saisi: {self.username}")
+            print(f"   ✅ Email: {self.username}")
             
-            # Remplir le mot de passe
             password_field = self.driver.find_element(By.NAME, "_password")
             password_field.clear()
             password_field.send_keys(self.password)
@@ -91,36 +110,20 @@ class AuchanScraper:
             
             time.sleep(1)
             
-            # Étape 4: Soumettre le formulaire
-            print("\n4. Soumission du formulaire...")
+            # Étape 4: Soumettre
+            print("\n4. Soumission...")
             submit_button = self.driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
             submit_button.click()
             
-            # Attendre la redirection
             time.sleep(5)
-            print(f"   URL après soumission: {self.driver.current_url}")
             
-            # Étape 5: Vérifier le succès de la connexion
-            print("\n5. Vérification de la connexion...")
+            # Étape 5: Vérification
+            print("\n5. Vérification...")
             
-            # Vérifier qu'on est de retour sur auchan.atgpedi.net
             if 'auchan.atgpedi.net' in self.driver.current_url:
-                print("   ✅ Retour sur le portail Auchan")
-                
-                # Vérifier les indicateurs de connexion réussie
                 page_source = self.driver.page_source.lower()
                 
-                success_indicators = [
-                    'bonjour' in page_source,
-                    'commandes' in page_source,
-                    'déconnexion' in page_source or 'logout' in page_source,
-                    'sessionexpire' not in self.driver.current_url
-                ]
-                
-                success_count = sum(success_indicators)
-                print(f"   Indicateurs de succès: {success_count}/{len(success_indicators)}")
-                
-                if success_count >= 2:
+                if any(word in page_source for word in ['bonjour', 'commandes', 'déconnexion']):
                     print("\n✅ CONNEXION RÉUSSIE!")
                     print("=" * 50)
                     return True
@@ -131,49 +134,41 @@ class AuchanScraper:
             
         except Exception as e:
             print(f"\n❌ EXCEPTION: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return False
 
     def extract_orders(self) -> List[Dict]:
         """
         Extrait la liste des commandes
-        Returns:
-            List[Dict]: Liste des commandes avec leurs détails
         """
         try:
             print("\n" + "=" * 50)
             print("EXTRACTION DES COMMANDES")
             print("=" * 50)
             
-            # Navigation vers la page des commandes
             orders_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=1000"
             
-            print("\n1. Navigation vers la liste des commandes...")
+            print("\n1. Navigation...")
             self.driver.get(orders_url)
             time.sleep(3)
-            print(f"   URL: {self.driver.current_url}")
             
-            # Attendre que le tableau soit chargé
-            print("\n2. Attente du chargement du tableau...")
+            print("\n2. Attente tableau...")
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.TAG_NAME, "tbody"))
             )
             
-            # Parser la page avec BeautifulSoup
-            print("\n3. Extraction des données...")
+            print("\n3. Extraction données...")
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             tbody = soup.find('tbody')
             
             if not tbody:
-                print("   ❌ Tableau des commandes non trouvé")
+                print("   ❌ Tableau non trouvé")
                 return []
             
             orders = []
             rows = tbody.find_all('tr')
             print(f"   Lignes trouvées: {len(rows)}")
             
-            for idx, row in enumerate(rows, 1):
+            for row in rows:
                 try:
                     cells = row.find_all('td')
                     if len(cells) < 8:
@@ -190,35 +185,27 @@ class AuchanScraper:
                         'statut': self._extract_text(cells[8]) if len(cells) > 8 else '',
                     }
                     
-                    # Vérifier que le numéro existe et est valide
                     if order['numero'] and len(order['numero']) > 3:
                         orders.append(order)
                         
                 except Exception as e:
-                    print(f"   ⚠️ Erreur ligne {idx}: {str(e)}")
                     continue
             
-            print(f"\n✅ {len(orders)} commandes extraites avec succès!")
+            print(f"\n✅ {len(orders)} commandes extraites!")
             print("=" * 50)
             return orders
             
         except Exception as e:
-            print(f"\n❌ Erreur extraction commandes: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"\n❌ Erreur: {str(e)}")
             return []
 
     def _extract_text(self, cell) -> str:
-        """Extrait et nettoie le texte d'une cellule"""
         if not cell:
             return ""
         text = cell.get_text(strip=True)
         return re.sub(r'\s+', ' ', text)
 
     def get_order_details(self, order_number: str) -> Optional[Dict]:
-        """
-        Récupère les détails d'une commande spécifique
-        """
         try:
             detail_url = f"{self.base_url}/gui.php?page=documents_commandes_voir&numero={order_number}"
             self.driver.get(detail_url)
@@ -227,16 +214,16 @@ class AuchanScraper:
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             details = {'numero': order_number}
             
-            # Ajouter ici l'extraction des détails spécifiques
-            
             return details
             
         except Exception as e:
-            print(f"Erreur récupération détails: {str(e)}")
+            print(f"Erreur détails: {str(e)}")
             return None
 
     def close(self):
-        """Ferme le navigateur"""
         if self.driver:
-            self.driver.quit()
-            print("\n🔒 Navigateur fermé")
+            try:
+                self.driver.quit()
+                print("\n🔒 Navigateur fermé")
+            except:
+                pass
