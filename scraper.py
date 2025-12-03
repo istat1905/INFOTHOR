@@ -1,4 +1,9 @@
-import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
 import re
 from typing import List, Dict, Optional
@@ -6,22 +11,27 @@ import time
 
 class AuchanScraper:
     """
-    Scraper pour extraire les commandes du portail Auchan
+    Scraper pour extraire les commandes du portail Auchan avec Selenium
     """
 
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
         self.base_url = "https://auchan.atgpedi.net"
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        })
+        self.driver = None
+        
+    def _init_driver(self):
+        """Initialise le driver Chrome avec les bonnes options"""
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')  # Mode sans interface
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.implicitly_wait(10)
 
     def login(self) -> bool:
         """
@@ -34,153 +44,91 @@ class AuchanScraper:
             print("DEBUT CONNEXION")
             print("=" * 50)
             
+            if not self.driver:
+                self._init_driver()
+            
             # Étape 1: Accéder à la page d'accueil
             print("\n1. Accès page d'accueil Auchan...")
-            response = self.session.get(f"{self.base_url}/index.php")
-            print(f"   Status: {response.status_code}")
-            print(f"   URL: {response.url}")
+            self.driver.get(f"{self.base_url}/index.php")
+            time.sleep(2)
+            print(f"   URL: {self.driver.current_url}")
             
-            if response.status_code != 200:
-                print(f"   ❌ Erreur: {response.status_code}")
-                return False
-
             # Étape 2: Cliquer sur "M'identifier avec mon compte @GP"
-            print("\n2. Redirection vers SSO @GP...")
-            soup = BeautifulSoup(response.text, 'html.parser')
+            print("\n2. Clic sur le bouton SSO @GP...")
+            try:
+                # Attendre et cliquer sur le bouton SSO (visible dans Image 1)
+                sso_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn.btn-outline-red.atgp'))
+                )
+                sso_button.click()
+                time.sleep(3)
+                print(f"   ✅ Bouton SSO cliqué")
+                print(f"   URL: {self.driver.current_url}")
+            except Exception as e:
+                print(f"   ⚠️ Bouton SSO non trouvé, tentative URL directe...")
+                self.driver.get(f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier")
+                time.sleep(3)
             
-            # Chercher le lien SSO (visible dans l'image 1)
-            sso_link = soup.find('a', {'class': 'btn btn-outline-red atgp btn-lg btn-block'})
-            if sso_link:
-                sso_url = sso_link.get('href', '')
-                print(f"   Lien SSO trouvé: {sso_url[:50]}...")
-            else:
-                # Fallback sur l'URL SSO directe
-                sso_url = f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier"
-                print(f"   Utilisation URL SSO par défaut")
+            # Étape 3: Remplir le formulaire de connexion (visible dans Image 2)
+            print("\n3. Remplissage du formulaire de connexion...")
             
-            response = self.session.get(sso_url, allow_redirects=True)
-            print(f"   Status: {response.status_code}")
-            print(f"   URL finale: {response.url}")
+            # Attendre que la page de connexion soit chargée
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "_username"))
+            )
             
-            if response.status_code != 200:
-                print(f"   ❌ Erreur SSO: {response.status_code}")
-                return False
-
-            # Étape 3: On devrait être sur accounts.atgpedi.net/login
-            print("\n3. Page de connexion @GP...")
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Remplir l'email
+            email_field = self.driver.find_element(By.NAME, "_username")
+            email_field.clear()
+            email_field.send_keys(self.username)
+            print(f"   ✅ Email saisi: {self.username}")
             
-            # Chercher le formulaire (visible dans l'image 2)
-            form = soup.find('form', {'class': 'form'})
-            if not form:
-                form = soup.find('form')
+            # Remplir le mot de passe
+            password_field = self.driver.find_element(By.NAME, "_password")
+            password_field.clear()
+            password_field.send_keys(self.password)
+            print(f"   ✅ Mot de passe saisi")
             
-            if not form:
-                print("   ❌ Formulaire non trouvé")
-                print(f"   URL actuelle: {response.url}")
-                return False
+            time.sleep(1)
             
-            print("   ✅ Formulaire de connexion trouvé")
-
-            # Récupérer l'action du formulaire
-            form_action = form.get('action', '')
-            if not form_action:
-                form_action = response.url
-            elif not form_action.startswith('http'):
-                base = 'https://accounts.atgpedi.net'
-                form_action = f"{base}{form_action}"
-            
-            print(f"   Action: {form_action}")
-
-            # Préparer les données de connexion
-            login_data = {}
-            
-            # Récupérer tous les champs du formulaire
-            for input_field in form.find_all('input'):
-                name = input_field.get('name')
-                value = input_field.get('value', '')
-                input_type = input_field.get('type', 'text')
-                
-                if name:
-                    if input_type == 'hidden':
-                        login_data[name] = value
-                        print(f"   Champ caché: {name} = {value[:30]}...")
-                    elif 'username' in name.lower() or 'email' in name.lower():
-                        login_data[name] = self.username
-                        print(f"   Champ username: {name}")
-                    elif 'password' in name.lower():
-                        login_data[name] = self.password
-                        print(f"   Champ password: {name}")
-
-            # Vérifier qu'on a bien les identifiants
-            has_username = any('username' in k.lower() or 'email' in k.lower() for k in login_data.keys())
-            has_password = any('password' in k.lower() for k in login_data.keys())
-            
-            if not has_username or not has_password:
-                print("   ⚠️ Champs username/password non détectés, ajout manuel...")
-                login_data['_username'] = self.username
-                login_data['_password'] = self.password
-
-            print(f"   Total champs formulaire: {len(login_data)}")
-
             # Étape 4: Soumettre le formulaire
             print("\n4. Soumission du formulaire...")
-            response = self.session.post(
-                form_action, 
-                data=login_data, 
-                allow_redirects=True,
-                headers={
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Origin': 'https://accounts.atgpedi.net',
-                    'Referer': response.url
-                }
-            )
-            print(f"   Status: {response.status_code}")
-            print(f"   URL finale: {response.url}")
+            submit_button = self.driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
+            submit_button.click()
             
-            if response.status_code != 200:
-                print(f"   ❌ Erreur soumission: {response.status_code}")
-                return False
-
-            # Étape 5: Vérifier le succès
-            print("\n5. Vérification connexion...")
-            page_text = response.text.lower()
+            # Attendre la redirection
+            time.sleep(5)
+            print(f"   URL après soumission: {self.driver.current_url}")
             
-            # Vérifier qu'on est bien de retour sur auchan.atgpedi.net
-            if 'auchan.atgpedi.net' in response.url:
+            # Étape 5: Vérifier le succès de la connexion
+            print("\n5. Vérification de la connexion...")
+            
+            # Vérifier qu'on est de retour sur auchan.atgpedi.net
+            if 'auchan.atgpedi.net' in self.driver.current_url:
                 print("   ✅ Retour sur le portail Auchan")
+                
+                # Vérifier les indicateurs de connexion réussie
+                page_source = self.driver.page_source.lower()
+                
+                success_indicators = [
+                    'bonjour' in page_source,
+                    'commandes' in page_source,
+                    'déconnexion' in page_source or 'logout' in page_source,
+                    'sessionexpire' not in self.driver.current_url
+                ]
+                
+                success_count = sum(success_indicators)
+                print(f"   Indicateurs de succès: {success_count}/{len(success_indicators)}")
+                
+                if success_count >= 2:
+                    print("\n✅ CONNEXION RÉUSSIE!")
+                    print("=" * 50)
+                    return True
             
-            success_indicators = [
-                'bonjour' in page_text,
-                'commandes' in page_text,
-                'logout' in page_text,
-                'déconnexion' in page_text,
-                'mon compte' in page_text
-            ]
+            print("\n❌ CONNEXION ÉCHOUÉE")
+            print("=" * 50)
+            return False
             
-            failure_indicators = [
-                'invalid' in page_text,
-                'incorrect' in page_text,
-                'erreur' in page_text,
-                'error' in page_text
-            ]
-            
-            success_count = sum(success_indicators)
-            failure_count = sum(failure_indicators)
-            
-            print(f"   Indicateurs de succès: {success_count}/5")
-            print(f"   Indicateurs d'échec: {failure_count}")
-            
-            if success_count >= 1 and failure_count == 0:
-                print("\n✅ CONNEXION RÉUSSIE!")
-                print("=" * 50)
-                return True
-            else:
-                print("\n❌ CONNEXION ÉCHOUÉE")
-                print(f"   Vérifiez vos identifiants")
-                print("=" * 50)
-                return False
-
         except Exception as e:
             print(f"\n❌ EXCEPTION: {str(e)}")
             import traceback
@@ -194,32 +142,43 @@ class AuchanScraper:
             List[Dict]: Liste des commandes avec leurs détails
         """
         try:
-            orders_url = f"{self.base_url}/gui.php?page=documents_commandes_liste"
-            clear_filters_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=50"
-            self.session.get(clear_filters_url)
-            time.sleep(1)
-            response = self.session.get(orders_url + "&lines_per_page=1000")
-
-            if response.status_code != 200:
-                print(f"Erreur page commandes: {response.status_code}")
-                return []
-
-            soup = BeautifulSoup(response.text, 'html.parser')
+            print("\n" + "=" * 50)
+            print("EXTRACTION DES COMMANDES")
+            print("=" * 50)
+            
+            # Navigation vers la page des commandes
+            orders_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=1000"
+            
+            print("\n1. Navigation vers la liste des commandes...")
+            self.driver.get(orders_url)
+            time.sleep(3)
+            print(f"   URL: {self.driver.current_url}")
+            
+            # Attendre que le tableau soit chargé
+            print("\n2. Attente du chargement du tableau...")
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "tbody"))
+            )
+            
+            # Parser la page avec BeautifulSoup
+            print("\n3. Extraction des données...")
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             tbody = soup.find('tbody')
+            
             if not tbody:
-                print("Tableau des commandes non trouvé")
+                print("   ❌ Tableau des commandes non trouvé")
                 return []
-
+            
             orders = []
             rows = tbody.find_all('tr')
-            print(f"Lignes trouvées: {len(rows)}")
-
-            for row in rows:
+            print(f"   Lignes trouvées: {len(rows)}")
+            
+            for idx, row in enumerate(rows, 1):
                 try:
                     cells = row.find_all('td')
                     if len(cells) < 8:
                         continue
-
+                    
                     order = {
                         'numero': self._extract_text(cells[1]),
                         'client': self._extract_text(cells[2]),
@@ -230,41 +189,54 @@ class AuchanScraper:
                         'montant_calcule': self._extract_text(cells[7]),
                         'statut': self._extract_text(cells[8]) if len(cells) > 8 else '',
                     }
-
+                    
+                    # Vérifier que le numéro existe et est valide
                     if order['numero'] and len(order['numero']) > 3:
                         orders.append(order)
-
+                        
                 except Exception as e:
-                    print(f"Erreur extraction ligne: {str(e)}")
+                    print(f"   ⚠️ Erreur ligne {idx}: {str(e)}")
                     continue
-
-            print(f"Commandes extraites: {len(orders)}")
+            
+            print(f"\n✅ {len(orders)} commandes extraites avec succès!")
+            print("=" * 50)
             return orders
-
+            
         except Exception as e:
-            print(f"Erreur extraction commandes: {str(e)}")
+            print(f"\n❌ Erreur extraction commandes: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def _extract_text(self, cell) -> str:
+        """Extrait et nettoie le texte d'une cellule"""
         if not cell:
             return ""
         text = cell.get_text(strip=True)
         return re.sub(r'\s+', ' ', text)
 
     def get_order_details(self, order_number: str) -> Optional[Dict]:
+        """
+        Récupère les détails d'une commande spécifique
+        """
         try:
             detail_url = f"{self.base_url}/gui.php?page=documents_commandes_voir&numero={order_number}"
-            response = self.session.get(detail_url)
-            if response.status_code != 200:
-                return None
-
-            soup = BeautifulSoup(response.text, 'html.parser')
+            self.driver.get(detail_url)
+            time.sleep(2)
+            
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             details = {'numero': order_number}
+            
+            # Ajouter ici l'extraction des détails spécifiques
+            
             return details
-
+            
         except Exception as e:
             print(f"Erreur récupération détails: {str(e)}")
             return None
 
     def close(self):
-        self.session.close()
+        """Ferme le navigateur"""
+        if self.driver:
+            self.driver.quit()
+            print("\n🔒 Navigateur fermé")
