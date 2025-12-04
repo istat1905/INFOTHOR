@@ -10,8 +10,8 @@ class AuchanScraper:
     """
     
     def __init__(self, login: str, password: str):
-        self.login = login
-        self.password = password
+        self.username = login
+        self.user_password = password
         self.base_url = "https://auchan.atgpedi.net"
         self.session = requests.Session()
         self.session.headers.update({
@@ -61,8 +61,8 @@ class AuchanScraper:
             
             # Préparer les données de connexion
             login_data = {
-                'username': self.login,
-                'password': self.password
+                'username': self.username,
+                'password': self.user_password
             }
             
             # Ajouter tous les champs cachés du formulaire
