@@ -73,46 +73,86 @@ with st.sidebar:
         if not login or not password:
             st.error("❌ Secrets non configurés")
         else:
-            with st.spinner("🔄 Connexion et extraction en cours..."):
-                try:
-                    scraper = AuchanScraper(login, password)
+            # Container pour afficher les étapes en temps réel
+            steps_container = st.empty()
+            progress_bar = st.progress(0)
+            
+            # Liste pour stocker les étapes
+            steps_display = []
+            
+            def update_progress(log_entry):
+                """Callback pour afficher les étapes en temps réel"""
+                status_colors = {
+                    'success': '🟢',
+                    'error': '🔴',
+                    'warning': '🟡',
+                    'info': '🔵'
+                }
+                icon = status_colors.get(log_entry['status'], '⚪')
+                
+                step_text = f"{icon} {log_entry['step']}"
+                if log_entry['details']:
+                    step_text += f"\n   ↳ *{log_entry['details']}*"
+                
+                steps_display.append(step_text)
+                
+                # Afficher toutes les étapes
+                with steps_container.container():
+                    for step in steps_display[-10:]:  # Afficher les 10 dernières étapes
+                        st.text(step)
+            
+            try:
+                # Créer le scraper avec callback
+                scraper = AuchanScraper(login, password, progress_callback=update_progress)
+                
+                progress_bar.progress(10)
+                
+                # Processus de connexion
+                if scraper.login():
+                    progress_bar.progress(50)
                     
-                    # Étape 1: Connexion
-                    progress_bar = st.progress(0)
-                    st.info("📡 Connexion au site...")
-                    progress_bar.progress(20)
+                    # Extraction des commandes
+                    orders = scraper.extract_orders()
+                    progress_bar.progress(90)
                     
-                    if scraper.login():
-                        st.success("✅ Connecté avec succès")
-                        progress_bar.progress(40)
+                    if orders and len(orders) > 0:
+                        st.session_state.orders_data = orders
+                        st.session_state.last_update = datetime.now()
+                        st.session_state.logged_in = True
+                        progress_bar.progress(100)
                         
-                        # Étape 2: Navigation vers la page commandes
-                        st.info("📄 Navigation vers la liste des commandes...")
-                        progress_bar.progress(60)
-                        time.sleep(1)
+                        time.sleep(0.5)
+                        steps_container.empty()
+                        progress_bar.empty()
                         
-                        # Étape 3: Extraction des données
-                        st.info("📊 Extraction des données...")
-                        progress_bar.progress(80)
-                        
-                        orders = scraper.extract_orders()
-                        
-                        if orders and len(orders) > 0:
-                            st.session_state.orders_data = orders
-                            st.session_state.last_update = datetime.now()
-                            st.session_state.logged_in = True
-                            progress_bar.progress(100)
-                            st.success(f"✅ {len(orders)} commandes extraites !")
-                            st.balloons()
-                        else:
-                            st.warning("⚠️ Aucune commande trouvée")
+                        st.success(f"✅ {len(orders)} commandes extraites avec succès !")
+                        st.balloons()
                     else:
-                        st.error("❌ Échec de la connexion")
-                    
-                    scraper.close()
-                    
-                except Exception as e:
-                    st.error(f"❌ Erreur: {str(e)}")
+                        progress_bar.empty()
+                        st.warning("⚠️ Aucune commande trouvée")
+                else:
+                    progress_bar.empty()
+                    st.error("❌ Échec de la connexion - Vérifiez les logs ci-dessus")
+                
+                scraper.close()
+                
+                # Afficher le log complet dans un expander
+                with st.expander("📋 Voir le log détaillé complet"):
+                    for log in scraper.get_steps_log():
+                        status_emoji = {
+                            'success': '✅',
+                            'error': '❌', 
+                            'warning': '⚠️',
+                            'info': 'ℹ️'
+                        }
+                        st.text(f"{status_emoji.get(log['status'], '•')} {log['step']}")
+                        if log['details']:
+                            st.caption(f"   {log['details']}")
+                
+            except Exception as e:
+                progress_bar.empty()
+                st.error(f"❌ Erreur inattendue: {str(e)}")
+                with st.expander("🔍 Détails de l'erreur"):
                     st.exception(e)
     
     # Informations sur la dernière mise à jour
