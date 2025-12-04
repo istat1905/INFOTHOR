@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
-# On garde l'import scraper au cas où tu utilises la méthode serveur en backup, 
-# sinon tu peux le commenter si tu n'utilises que Tampermonkey
-# from scraper import AuchanScraper 
 from datetime import datetime
 import json
 import base64
-import os
 
 # Configuration de la page
 st.set_page_config(
@@ -23,6 +19,8 @@ def decode_data_from_url():
         query_params = st.query_params
         if "data" in query_params:
             compressed = query_params["data"]
+            # Décoder l'URL encoded string d'abord si nécessaire, mais streamlit le fait souvent
+            # Si tampermonkey envoie btoa(unescape(encodeURIComponent(json))), on décode :
             json_string = base64.b64decode(compressed).decode('utf-8')
             orders = json.loads(json_string)
             return orders
@@ -54,7 +52,8 @@ if incoming_data:
     st.session_state.orders_data = incoming_data
     st.session_state.last_update = datetime.now()
     st.toast(f"✅ {len(incoming_data)} commandes reçues !", icon="🎉")
-    st.query_params.clear() # Nettoyer l'URL
+    # On nettoie l'URL pour ne pas recharger les données au refresh
+    st.query_params.clear()
 
 # --- INTERFACE DE COMMANDE ---
 
@@ -62,6 +61,7 @@ col_btn, col_info = st.columns([1, 3])
 
 with col_btn:
     # URL Cible : Ajout du paramètre ?autostart=true pour déclencher Tampermonkey
+    # Note: Assurez-vous que c'est bien l'URL de base de votre liste de commandes
     auchan_url = "https://auchan.atgpedi.net/gui.php?page=documents_commandes_liste&autostart=true"
     
     # Bouton qui ouvre l'onglet Auchan et déclenche le script
@@ -71,7 +71,7 @@ with col_info:
     if st.session_state.last_update:
         st.caption(f"Dernière mise à jour : {st.session_state.last_update.strftime('%H:%M:%S')}")
     else:
-        st.info("Cliquez sur le bouton pour récupérer les commandes depuis Auchan.")
+        st.info("Cliquez sur le bouton pour ouvrir Auchan et récupérer les commandes automatiquement.")
 
 st.divider()
 
@@ -82,12 +82,22 @@ if st.session_state.orders_data is not None:
     # Métriques
     m1, m2, m3 = st.columns(3)
     m1.metric("Commandes", len(df))
+    
     if 'montant_calcule' in df.columns:
-        total = df['montant_calcule'].astype(str).str.replace(',', '.').astype(float).sum()
-        m2.metric("Total €", f"{total:.2f} €")
+        # Nettoyage sommaire du montant pour l'additionner
+        try:
+            total = df['montant_calcule'].astype(str).str.replace('€', '').str.replace(',', '.').str.strip()
+            total = pd.to_numeric(total, errors='coerce').sum()
+            m2.metric("Total €", f"{total:.2f} €")
+        except:
+            m2.metric("Total €", "N/A")
+            
     if 'livrer_le' in df.columns:
-        a_venir = len(df[pd.to_datetime(df['livrer_le'], errors='coerce') >= pd.Timestamp.now()])
-        m3.metric("A livrer", a_venir)
+        try:
+            a_venir = len(df[pd.to_datetime(df['livrer_le'], dayfirst=True, errors='coerce') >= pd.Timestamp.now()])
+            m3.metric("A livrer", a_venir)
+        except:
+            m3.metric("A livrer", "N/A")
 
     # Tableau
     st.dataframe(
@@ -108,4 +118,4 @@ if st.session_state.orders_data is not None:
     col_dl2.download_button("📥 JSON", json_str, "commandes.json", "application/json", use_container_width=True)
 
 else:
-    st.empty() # Page vide si pas de données
+    st.empty()
