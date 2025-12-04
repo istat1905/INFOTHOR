@@ -130,9 +130,38 @@ with st.sidebar:
                     else:
                         progress_bar.empty()
                         st.warning("⚠️ Aucune commande trouvée")
+                        
+                        # Suggestion si aucune commande
+                        with st.expander("💡 Suggestions"):
+                            st.markdown("""
+                            **Pourquoi aucune commande ?**
+                            - Le tableau est peut-être vide sur le site
+                            - La structure HTML a peut-être changé
+                            - Des filtres sont peut-être encore actifs
+                            
+                            **Actions possibles :**
+                            1. Vérifiez manuellement sur le site qu'il y a bien des commandes
+                            2. Consultez le log détaillé ci-dessous
+                            3. Réessayez l'extraction
+                            """)
                 else:
                     progress_bar.empty()
-                    st.error("❌ Échec de la connexion - Vérifiez les logs ci-dessus")
+                    st.error("❌ Impossible de se connecter")
+                    
+                    # Afficher suggestions en cas d'échec
+                    with st.expander("💡 Que faire ?"):
+                        st.markdown("""
+                        **Le mode secours a été testé automatiquement.**
+                        
+                        Si l'échec persiste :
+                        1. ✅ Vérifiez vos identifiants dans les Secrets
+                        2. ✅ Testez la connexion manuelle sur le site
+                        3. ✅ Vérifiez que le site est accessible
+                        4. 📋 Consultez le log détaillé ci-dessous
+                        
+                        **Note :** Si vous êtes déjà connecté sur le site dans votre navigateur,
+                        le processus devrait fonctionner via le mode secours.
+                        """)
                 
                 scraper.close()
                 
