@@ -225,12 +225,47 @@ class AuchanScraper:
             
             self.log_step(f"📤 Soumission identifiants ({self.username})", "info")
             
+            # Petite pause avant soumission (éviter détection bot)
+            time.sleep(2)
+            
             # Étape 4: Soumettre le formulaire de connexion
-            response = self.session.post(form_action, data=login_data, allow_redirects=True, timeout=15)
+            response = self.session.post(
+                form_action, 
+                data=login_data, 
+                allow_redirects=True, 
+                timeout=self.timeout,
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Referer': response.url,
+                    'Origin': 'https://www.atgp.net'
+                }
+            )
             
             if response.status_code != 200:
                 self.log_step("❌ Soumission formulaire échouée", "error", f"Status: {response.status_code}")
-                return False
+                
+                # Si 503, c'est peut-être temporaire - on peut réessayer
+                if response.status_code == 503:
+                    self.log_step("⏳ Erreur 503 détectée, nouvelle tentative...", "warning")
+                    time.sleep(3)
+                    response = self.session.post(
+                        form_action, 
+                        data=login_data, 
+                        allow_redirects=True, 
+                        timeout=self.timeout,
+                        headers={
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Referer': response.url
+                        }
+                    )
+                    
+                    if response.status_code != 200:
+                        self.log_step("❌ Deuxième tentative échouée", "error", f"Status: {response.status_code}")
+                        return False
+                    else:
+                        self.log_step("✅ Deuxième tentative réussie", "success")
+                else:
+                    return False
             
             # Vérifier si la connexion a réussi
             if "Bonjour" in response.text or "TUGBA AKMAN" in response.text or "Commandes" in response.text:
@@ -280,7 +315,7 @@ class AuchanScraper:
             self.log_step("🎯 Test accès direct page commandes", "info")
             
             orders_url = f"{self.base_url}/gui.php?page=documents_commandes_liste"
-            response = self.session.get(orders_url, timeout=10)
+            response = self.session.get(orders_url, timeout=self.timeout)
             
             if response.status_code != 200:
                 self.log_step("❌ Accès direct impossible", "error", f"Status: {response.status_code}")
@@ -290,19 +325,29 @@ class AuchanScraper:
             
             # Vérifier si on est bien sur la page des commandes (présence du tableau)
             tbody = soup.find('tbody')
-            has_table = tbody is not None
+            has_table = tbody is not None and len(tbody.find_all('tr')) > 0
             
             # Vérifier qu'on n'est pas redirigé vers la page de login
             has_login_form = soup.find('input', {'type': 'password'}) is not None
             
+            # Chercher aussi le titre de la page
+            page_title = soup.find('title')
+            title_text = page_title.get_text() if page_title else ""
+            
+            self.log_step("🔍 Analyse page secours", "info", f"Titre: {title_text[:50]}")
+            
             if has_table and not has_login_form:
-                self.log_step("✅ Accès direct réussi !", "success", "Session valide détectée")
+                row_count = len(tbody.find_all('tr'))
+                self.log_step("✅ Accès direct réussi !", "success", f"Tableau trouvé avec {row_count} lignes")
                 return True
             elif has_login_form:
                 self.log_step("❌ Redirection vers login", "error", "Session expirée, identifiants requis")
                 return False
             else:
-                self.log_step("⚠️ Page inattendue", "warning", "Structure HTML différente")
+                self.log_step("⚠️ Page inattendue", "warning", f"Tableau: {has_table}, Login: {has_login_form}")
+                # Sauvegarder un échantillon du HTML pour debug
+                html_sample = soup.get_text()[:500]
+                self.log_step("📄 Échantillon HTML", "info", html_sample)
                 return False
                 
         except requests.Timeout:
