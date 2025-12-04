@@ -41,11 +41,23 @@ extraction_component = """
                 disabled>
             ⚡ 2. EXTRAIRE
         </button>
+        
+        <button id="debug-btn" 
+                style="padding: 10px 20px; font-size: 14px; background: #f59e0b; 
+                       color: white; border: none; border-radius: 5px; cursor: pointer; 
+                       font-weight: bold; margin-left: 10px;">
+            🔍 DEBUG
+        </button>
     </div>
     
     <div id="status" style="padding: 15px; background: #f3f4f6; border-radius: 10px; 
                              text-align: center; font-size: 16px; color: #374151;">
         📋 Cliquez sur "OUVRIR AUCHAN" pour commencer
+    </div>
+    
+    <div id="debug-info" style="margin-top: 20px; padding: 15px; background: #1f2937; 
+                                 color: #10b981; border-radius: 10px; font-family: monospace; 
+                                 font-size: 12px; display: none; max-height: 400px; overflow-y: auto;">
     </div>
 </div>
 
@@ -53,89 +65,171 @@ extraction_component = """
 let auchanWindow = null;
 const openBtn = document.getElementById('open-auchan-btn');
 const extractBtn = document.getElementById('extract-btn');
+const debugBtn = document.getElementById('debug-btn');
 const status = document.getElementById('status');
+const debugInfo = document.getElementById('debug-info');
+
+let logs = [];
+
+function log(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    logs.push(`[${timestamp}] ${message}`);
+    console.log(message);
+    if (debugInfo.style.display !== 'none') {
+        debugInfo.innerHTML = logs.join('<br>');
+        debugInfo.scrollTop = debugInfo.scrollHeight;
+    }
+}
+
+// Toggle debug
+debugBtn.addEventListener('click', () => {
+    if (debugInfo.style.display === 'none') {
+        debugInfo.style.display = 'block';
+        debugInfo.innerHTML = logs.join('<br>');
+        debugBtn.textContent = '🔍 MASQUER DEBUG';
+    } else {
+        debugInfo.style.display = 'none';
+        debugBtn.textContent = '🔍 DEBUG';
+    }
+});
+
+log('✅ Script INFOTHOR chargé');
 
 // Ouvrir l'onglet Auchan
 openBtn.addEventListener('click', () => {
+    log('🌐 Tentative ouverture onglet Auchan...');
+    
     auchanWindow = window.open(
         'https://auchan.atgpedi.net/gui.php?page=documents_commandes_liste',
-        'auchan_tab'
+        'auchan_tab',
+        'noopener,noreferrer'
     );
     
     if (auchanWindow) {
+        log('✅ Onglet ouvert avec succès');
         status.innerHTML = '✅ Onglet Auchan ouvert !<br>Connectez-vous si nécessaire, puis cliquez sur EXTRAIRE';
         extractBtn.disabled = false;
         extractBtn.style.opacity = '1';
         openBtn.style.opacity = '0.5';
     } else {
+        log('❌ Échec ouverture - Popups bloqués ?');
         status.innerHTML = '❌ Erreur: Autorisez les popups pour ce site';
     }
 });
 
 // Extraire les données
 extractBtn.addEventListener('click', () => {
+    log('⚡ Bouton EXTRAIRE cliqué');
+    
     if (!auchanWindow || auchanWindow.closed) {
+        log('❌ Onglet Auchan fermé ou inexistant');
         status.innerHTML = '❌ L\'onglet Auchan est fermé. Cliquez sur OUVRIR AUCHAN.';
         extractBtn.disabled = true;
         openBtn.style.opacity = '1';
         return;
     }
     
+    log('🔍 Onglet Auchan vérifié: OK');
     status.innerHTML = '🔄 Extraction en cours...';
     extractBtn.disabled = true;
     
-    // Vérifier localStorage périodiquement
+    // Nettoyer localStorage
+    log('🗑️ Nettoyage localStorage...');
     localStorage.removeItem('infothor_data');
     
     // Envoyer commande d'extraction
-    auchanWindow.postMessage({
-        action: 'EXTRACT_ORDERS'
-    }, 'https://auchan.atgpedi.net');
+    log('📤 Envoi message à l\'onglet Auchan...');
+    try {
+        auchanWindow.postMessage({
+            action: 'EXTRACT_ORDERS'
+        }, 'https://auchan.atgpedi.net');
+        log('✅ Message envoyé');
+    } catch(e) {
+        log('❌ Erreur envoi message: ' + e.message);
+    }
     
     // Polling localStorage
     let attempts = 0;
+    log('👀 Démarrage surveillance localStorage...');
+    
     const checkData = setInterval(() => {
         attempts++;
+        log(`🔄 Tentative ${attempts}/20...`);
         
         const data = localStorage.getItem('infothor_data');
         
         if (data) {
             clearInterval(checkData);
-            const parsed = JSON.parse(data);
+            log('✅ Données trouvées dans localStorage !');
             
-            if (parsed.orders && parsed.orders.length > 0) {
-                status.innerHTML = `✅ ${parsed.orders.length} commandes extraites ! Redirection...`;
+            try {
+                const parsed = JSON.parse(data);
+                log(`📊 Données parsées: ${parsed.orders ? parsed.orders.length : 0} commandes`);
                 
-                // Envoyer à Streamlit
-                const compressed = btoa(unescape(encodeURIComponent(JSON.stringify(parsed.orders))));
-                const currentUrl = window.location.href.split('?')[0];
-                
-                setTimeout(() => {
-                    window.location.href = currentUrl + '?data=' + encodeURIComponent(compressed);
-                }, 1000);
-            } else {
-                status.innerHTML = '⚠️ Aucune commande trouvée. Êtes-vous sur la bonne page ?';
+                if (parsed.orders && parsed.orders.length > 0) {
+                    status.innerHTML = `✅ ${parsed.orders.length} commandes extraites ! Redirection...`;
+                    
+                    // Envoyer à Streamlit
+                    log('📤 Compression et envoi à Streamlit...');
+                    const compressed = btoa(unescape(encodeURIComponent(JSON.stringify(parsed.orders))));
+                    const currentUrl = window.location.href.split('?')[0];
+                    
+                    log('🔄 Redirection vers Streamlit avec données...');
+                    setTimeout(() => {
+                        window.location.href = currentUrl + '?data=' + encodeURIComponent(compressed);
+                    }, 1000);
+                } else {
+                    log('⚠️ Données vides');
+                    status.innerHTML = '⚠️ Aucune commande trouvée. Êtes-vous sur la bonne page ?';
+                    extractBtn.disabled = false;
+                }
+            } catch(e) {
+                log('❌ Erreur parsing JSON: ' + e.message);
+                status.innerHTML = '❌ Erreur traitement données';
                 extractBtn.disabled = false;
             }
         } else if (attempts > 20) {
             clearInterval(checkData);
-            status.innerHTML = '❌ Timeout. Vérifiez que le script Tampermonkey est actif.';
+            log('❌ TIMEOUT après 20 tentatives');
+            log('💡 Vérifiez:');
+            log('   - Le script Tampermonkey est bien actif');
+            log('   - Vous êtes sur la page des commandes');
+            log('   - La console de l\'onglet Auchan pour des erreurs');
+            status.innerHTML = '❌ Timeout. Vérifiez que le script Tampermonkey est actif sur l\'onglet Auchan.';
             extractBtn.disabled = false;
         }
     }, 500);
 });
 
-// Raccourci clavier Ctrl+Shift+E
+// Test localStorage (debug)
+log('🧪 Test localStorage...');
+try {
+    localStorage.setItem('test', 'ok');
+    const test = localStorage.getItem('test');
+    if (test === 'ok') {
+        log('✅ localStorage fonctionne');
+        localStorage.removeItem('test');
+    } else {
+        log('⚠️ localStorage problème lecture');
+    }
+} catch(e) {
+    log('❌ localStorage bloqué: ' + e.message);
+}
+
+// Raccourci clavier
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.shiftKey && e.key === 'E') {
         e.preventDefault();
+        log('⌨️ Raccourci Ctrl+Shift+E détecté');
         if (!extractBtn.disabled) {
             extractBtn.click();
+        } else {
+            log('⚠️ Bouton EXTRAIRE désactivé');
         }
     }
 });
 
-console.log('✅ INFOTHOR Interface chargée');
+log('🎉 Initialisation terminée');
 </script>
 """
 
