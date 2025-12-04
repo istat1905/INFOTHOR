@@ -4,6 +4,8 @@ from scraper import AuchanScraper
 from datetime import datetime
 import time
 import os
+import json
+import base64
 
 # Configuration de la page
 st.set_page_config(
@@ -29,6 +31,24 @@ def get_credentials():
             return login, password, "Environment Variables"
         else:
             return None, None, "Non configuré"
+
+# Fonction pour décoder les données du Tampermonkey
+def decode_data_from_url():
+    """Décode les données envoyées depuis Tampermonkey via URL"""
+    try:
+        query_params = st.query_params
+        
+        if "data" in query_params:
+            # Décoder depuis base64
+            compressed = query_params["data"]
+            json_string = base64.b64decode(compressed).decode('utf-8')
+            orders = json.loads(json_string)
+            
+            return orders
+        return None
+    except Exception as e:
+        st.error(f"Erreur décodage données : {str(e)}")
+        return None
 
 # Style CSS personnalisé
 st.markdown("""
@@ -62,6 +82,17 @@ st.markdown("""
 # Titre principal
 st.markdown('<p class="main-header">⚡ INFOTHOR - Extracteur de Commandes</p>', unsafe_allow_html=True)
 
+# Vérifier si des données arrivent depuis Tampermonkey
+incoming_data = decode_data_from_url()
+if incoming_data:
+    st.session_state.orders_data = incoming_data
+    st.session_state.last_update = datetime.now()
+    st.session_state.extraction_method = "Tampermonkey"
+    st.success(f"✅ {len(incoming_data)} commandes reçues depuis Tampermonkey !")
+    st.balloons()
+    # Nettoyer l'URL
+    st.query_params.clear()
+
 # Initialisation de la session state
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -69,27 +100,68 @@ if 'orders_data' not in st.session_state:
     st.session_state.orders_data = None
 if 'last_update' not in st.session_state:
     st.session_state.last_update = None
+if 'extraction_method' not in st.session_state:
+    st.session_state.extraction_method = None
 
 # Sidebar pour la connexion
 with st.sidebar:
-    st.header("🔐 Connexion")
+    st.header("🔐 Méthodes d'extraction")
     
-    # Récupération des identifiants depuis secrets ou env vars
-    login, password, source = get_credentials()
+    # Tabs pour les deux méthodes
+    tab1, tab2 = st.tabs(["⚡ Tampermonkey", "🌐 Serveur"])
     
-    if login and password:
-        st.success(f"✅ Identifiants chargés")
-        st.caption(f"Source: {source}")
-    else:
-        st.error("❌ Erreur : Identifiants non configurés")
-        st.info("Configurez AUCHAN_LOGIN et AUCHAN_PASSWORD dans les variables d'environnement")
+    with tab1:
+        st.markdown("""
+        ### ✨ Méthode Recommandée
+        
+        **Utiliser le script Tampermonkey :**
+        
+        1. 🔗 Connectez-vous sur le site Auchan
+        2. 📋 Allez sur la page des commandes
+        3. ⚡ Cliquez sur le bouton "INFOTHOR"
+        4. 🎉 Les données apparaissent ici !
+        
+        **Avantages :**
+        - ✅ Pas de timeout
+        - ✅ Fonctionne toujours
+        - ✅ Ultra rapide
+        - ✅ Utilise votre session
+        """)
+        
+        st.divider()
+        
+        with st.expander("📝 Installation Tampermonkey"):
+            st.markdown("""
+            **Vous avez déjà Tampermonkey ?** Parfait !
+            
+            1. Ouvrez le dashboard Tampermonkey
+            2. Cliquez sur "Créer un nouveau script"
+            3. Collez le script INFOTHOR
+            4. Sauvegardez (Ctrl+S)
+            5. Allez sur le site Auchan
+            
+            **Le script est fourni dans les artifacts** ⬆️
+            """)
+    
+    with tab2:
+        st.markdown("### 🌐 Extraction Serveur")
+        st.warning("⚠️ Méthode de secours (peut timeout)")
+        
+        # Récupération des identifiants depuis secrets ou env vars
+        login, password, source = get_credentials()
+        
+        if login and password:
+            st.success(f"✅ Identifiants chargés")
+            st.caption(f"Source: {source}")
+        else:
+            st.error("❌ Identifiants non configurés")
     
     st.divider()
     
-    # Bouton de connexion/extraction
-    if st.button("🚀 Extraire les commandes", type="primary", use_container_width=True):
+    # Bouton d'extraction serveur (dans sidebar, après les tabs)
+    if st.button("🌐 Extraction Serveur", type="secondary", use_container_width=True, help="Méthode de secours"):
         if not login or not password:
-            st.error("❌ Secrets non configurés")
+            st.error("❌ Identifiants non configurés")
         else:
             # Container pour afficher les étapes en temps réel
             steps_container = st.empty()
@@ -137,6 +209,7 @@ with st.sidebar:
                         st.session_state.orders_data = orders
                         st.session_state.last_update = datetime.now()
                         st.session_state.logged_in = True
+                        st.session_state.extraction_method = "Serveur"
                         progress_bar.progress(100)
                         
                         time.sleep(0.5)
@@ -206,10 +279,13 @@ with st.sidebar:
     if st.session_state.last_update:
         st.divider()
         st.caption(f"🕐 Dernière extraction: {st.session_state.last_update.strftime('%H:%M:%S')}")
+        if st.session_state.extraction_method:
+            st.caption(f"📡 Méthode: {st.session_state.extraction_method}")
         
         if st.button("🔄 Rafraîchir", use_container_width=True):
             st.session_state.orders_data = None
             st.session_state.last_update = None
+            st.session_state.extraction_method = None
             st.rerun()
 
 # Zone principale - Affichage des données
@@ -347,15 +423,60 @@ else:
     st.markdown("""
     <div class="info-box">
         <h3>👋 Bienvenue sur INFOTHOR !</h3>
-        <p>Système d'extraction automatique des commandes</p>
-        <ol>
-            <li>Vérifiez que les secrets sont configurés (barre latérale)</li>
-            <li>Cliquez sur "🚀 Extraire les commandes"</li>
-            <li>Consultez et filtrez vos données</li>
-            <li>Exportez les résultats au format souhaité</li>
-        </ol>
+        <p><strong>Système d'extraction automatique des commandes</strong></p>
     </div>
     """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Deux colonnes pour les deux méthodes
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### ⚡ Méthode 1 : Tampermonkey (Recommandé)
+        
+        **La plus simple et fiable !**
+        
+        **Installation :**
+        1. Ouvrez Tampermonkey dashboard
+        2. Créez un nouveau script
+        3. Collez le code fourni ⬆️
+        4. Sauvegardez
+        
+        **Utilisation :**
+        1. Connectez-vous sur Auchan
+        2. Allez sur la page commandes
+        3. Cliquez sur "⚡ INFOTHOR"
+        4. Les données apparaissent ici !
+        
+        **Avantages :**
+        - ✅ Fonctionne à 100%
+        - ✅ Pas de timeout
+        - ✅ Ultra rapide
+        - ✅ Aucune config serveur
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### 🌐 Méthode 2 : Extraction Serveur
+        
+        **Méthode de secours**
+        
+        Le serveur essaie de se connecter directement.
+        
+        **Limitations :**
+        - ⚠️ Peut timeout
+        - ⚠️ Problèmes SSO possibles
+        - ⚠️ Moins fiable
+        
+        **Utilisation :**
+        1. Configurez les identifiants (variables d'env)
+        2. Cliquez sur "🌐 Extraction Serveur"
+        3. Attendez le résultat
+        
+        **Utilisez plutôt Tampermonkey !** 😉
+        """)
     
     st.divider()
     
