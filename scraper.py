@@ -23,6 +23,8 @@ class AuchanScraper:
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1'
         })
+        # Augmenter les timeouts
+        self.timeout = 30  # 30 secondes au lieu de 10
         self.progress_callback = progress_callback
         self.steps_log = []
     
@@ -53,7 +55,7 @@ class AuchanScraper:
         """
         try:
             self.log_step("🔍 Vérification session existante", "info")
-            response = self.session.get(f"{self.base_url}/gui.php?page=accueil", timeout=10)
+            response = self.session.get(f"{self.base_url}/gui.php?page=accueil", timeout=self.timeout)
             
             if response.status_code != 200:
                 self.log_step("⚠️ Page accueil inaccessible", "warning", f"Status: {response.status_code}")
