@@ -3,6 +3,7 @@ import pandas as pd
 from scraper import AuchanScraper
 from datetime import datetime
 import time
+import os
 
 # Configuration de la page
 st.set_page_config(
@@ -10,6 +11,24 @@ st.set_page_config(
     page_icon="⚡",
     layout="wide"
 )
+
+# Fonction pour récupérer les identifiants (compatible Streamlit Cloud ET Render)
+def get_credentials():
+    """Récupère les identifiants depuis secrets Streamlit ou variables d'environnement"""
+    try:
+        # Essayer secrets Streamlit d'abord
+        login = st.secrets["auchan"]["login"]
+        password = st.secrets["auchan"]["password"]
+        return login, password, "Streamlit Secrets"
+    except:
+        # Sinon, essayer variables d'environnement (Render)
+        login = os.environ.get("AUCHAN_LOGIN")
+        password = os.environ.get("AUCHAN_PASSWORD")
+        
+        if login and password:
+            return login, password, "Environment Variables"
+        else:
+            return None, None, "Non configuré"
 
 # Style CSS personnalisé
 st.markdown("""
@@ -55,16 +74,15 @@ if 'last_update' not in st.session_state:
 with st.sidebar:
     st.header("🔐 Connexion")
     
-    # Récupération des identifiants depuis les secrets Streamlit
-    try:
-        login = st.secrets["auchan"]["login"]
-        password = st.secrets["auchan"]["password"]
-        st.success("✅ Identifiants chargés depuis les secrets")
-    except:
-        st.error("❌ Erreur : Secrets non configurés")
-        st.info("Configurez les secrets dans les paramètres Streamlit Cloud")
-        login = None
-        password = None
+    # Récupération des identifiants depuis secrets ou env vars
+    login, password, source = get_credentials()
+    
+    if login and password:
+        st.success(f"✅ Identifiants chargés")
+        st.caption(f"Source: {source}")
+    else:
+        st.error("❌ Erreur : Identifiants non configurés")
+        st.info("Configurez AUCHAN_LOGIN et AUCHAN_PASSWORD dans les variables d'environnement")
     
     st.divider()
     
