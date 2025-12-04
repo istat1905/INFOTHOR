@@ -1,4 +1,4 @@
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+import requests
 from bs4 import BeautifulSoup
 import re
 from typing import List, Dict, Optional
@@ -6,43 +6,23 @@ import time
 
 class AuchanScraper:
     """
-    Scraper pour extraire les commandes du portail Auchan avec Playwright
+    Scraper pour extraire les commandes du portail Auchan
     """
-
-    def __init__(self, username: str, password: str):
-        self.username = username
+    
+    def __init__(self, login: str, password: str):
+        self.login = login
         self.password = password
         self.base_url = "https://auchan.atgpedi.net"
-        self.browser = None
-        self.context = None
-        self.page = None
-        self.playwright = None
-        
-    def _init_browser(self):
-        """Initialise le navigateur Playwright"""
-        print("🔧 Initialisation du navigateur...")
-        
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-            ]
-        )
-        
-        self.context = self.browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        )
-        
-        self.page = self.context.new_page()
-        self.page.set_default_timeout(30000)
-        
-        print("✅ Navigateur initialisé")
-
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        })
+    
     def login(self) -> bool:
         """
         Effectue la connexion au portail
@@ -50,186 +30,218 @@ class AuchanScraper:
             bool: True si connexion réussie, False sinon
         """
         try:
-            print("\n" + "=" * 50)
-            print("DEBUT CONNEXION")
-            print("=" * 50)
-            
-            if not self.page:
-                self._init_browser()
-            
             # Étape 1: Accéder à la page d'accueil
-            print("\n1. Accès page d'accueil...")
-            self.page.goto(f"{self.base_url}/index.php", wait_until="domcontentloaded")
-            time.sleep(2)
-            print(f"   ✅ Page chargée")
+            response = self.session.get(f"{self.base_url}/index.php")
+            if response.status_code != 200:
+                print(f"Erreur lors de l'accès à la page d'accueil: {response.status_code}")
+                return False
             
-            # Étape 2: Cliquer sur le bouton SSO
-            print("\n2. Clic sur le bouton SSO...")
-            try:
-                # Chercher le bouton SSO
-                sso_button = self.page.locator('a.btn.btn-outline-red.atgp, a[href*="sso"]').first
-                sso_button.click()
-                time.sleep(3)
-                print(f"   ✅ Redirection SSO")
-            except:
-                print(f"   ⚠️ Tentative URL directe...")
-                self.page.goto(f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier")
-                time.sleep(3)
+            # Étape 2: Cliquer sur le bouton de connexion SSO
+            # Simuler le clic sur call.php?call=base_sso_openid_connect_authentifier
+            auth_url = f"{self.base_url}/call.php?call=base_sso_openid_connect_authentifier"
+            response = self.session.get(auth_url, allow_redirects=True)
             
-            # Étape 3: Remplir le formulaire
-            print("\n3. Remplissage formulaire...")
+            if response.status_code != 200:
+                print(f"Erreur lors de la redirection SSO: {response.status_code}")
+                return False
             
-            # Attendre le champ username
-            self.page.wait_for_selector('input[name="_username"]', timeout=10000)
+            # Étape 3: Récupérer la page de connexion @GP
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Remplir email
-            self.page.fill('input[name="_username"]', self.username)
-            print(f"   ✅ Email: {self.username}")
+            # Trouver le formulaire de connexion
+            form = soup.find('form')
+            if not form:
+                print("Formulaire de connexion non trouvé")
+                return False
             
-            # Remplir mot de passe
-            self.page.fill('input[name="_password"]', self.password)
-            print(f"   ✅ Mot de passe saisi")
+            # Extraire l'URL d'action du formulaire
+            form_action = form.get('action', '')
+            if not form_action.startswith('http'):
+                form_action = f"https://www.atgp.net{form_action}"
             
-            time.sleep(1)
+            # Préparer les données de connexion
+            login_data = {
+                'username': self.login,
+                'password': self.password
+            }
             
-            # Étape 4: Soumettre
-            print("\n4. Soumission...")
-            self.page.click('button[type="submit"]')
+            # Ajouter tous les champs cachés du formulaire
+            for input_field in form.find_all('input', type='hidden'):
+                name = input_field.get('name')
+                value = input_field.get('value', '')
+                if name:
+                    login_data[name] = value
             
-            # Attendre la redirection
-            time.sleep(5)
+            # Étape 4: Soumettre le formulaire de connexion
+            response = self.session.post(form_action, data=login_data, allow_redirects=True)
             
-            # Étape 5: Vérification
-            print("\n5. Vérification...")
+            if response.status_code != 200:
+                print(f"Erreur lors de la soumission du formulaire: {response.status_code}")
+                return False
             
-            current_url = self.page.url
-            if 'auchan.atgpedi.net' in current_url:
-                page_content = self.page.content().lower()
-                
-                success_indicators = [
-                    'bonjour' in page_content,
-                    'commandes' in page_content,
-                    'déconnexion' in page_content or 'logout' in page_content
-                ]
-                
-                if any(success_indicators):
-                    print("\n✅ CONNEXION RÉUSSIE!")
-                    print("=" * 50)
-                    return True
-            
-            print("\n❌ CONNEXION ÉCHOUÉE")
-            print(f"   URL actuelle: {current_url}")
-            print("=" * 50)
-            return False
+            # Vérifier si la connexion a réussi
+            # On vérifie la présence d'éléments typiques d'une session connectée
+            if "Bonjour" in response.text or "TUGBA AKMAN" in response.text or "Commandes" in response.text:
+                print("Connexion réussie!")
+                return True
+            else:
+                print("La connexion a échoué - identifiants incorrects ou processus modifié")
+                return False
             
         except Exception as e:
-            print(f"\n❌ EXCEPTION: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"Erreur lors de la connexion: {str(e)}")
             return False
-
+    
     def extract_orders(self) -> List[Dict]:
         """
         Extrait la liste des commandes
+        Returns:
+            List[Dict]: Liste des commandes avec leurs détails
         """
         try:
-            print("\n" + "=" * 50)
-            print("EXTRACTION DES COMMANDES")
-            print("=" * 50)
+            # Accéder à la page de la liste des commandes
+            orders_url = f"{self.base_url}/gui.php?page=documents_commandes_liste"
             
-            orders_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=1000"
+            # D'abord, effacer les filtres si présents
+            clear_filters_url = f"{self.base_url}/gui.php?query=documents_commandes_liste&page=documents_commandes_liste&acces_page=1&lines_per_page=100"
+            response = self.session.get(clear_filters_url)
             
-            print("\n1. Navigation vers liste commandes...")
-            self.page.goto(orders_url, wait_until="domcontentloaded")
-            time.sleep(3)
+            time.sleep(1)  # Petite pause pour laisser le serveur traiter
             
-            print("\n2. Attente chargement tableau...")
-            self.page.wait_for_selector('tbody', timeout=10000)
+            # Récupérer toutes les commandes (100 par page)
+            response = self.session.get(orders_url + "&lines_per_page=1000")
             
-            print("\n3. Extraction données...")
-            html_content = self.page.content()
-            soup = BeautifulSoup(html_content, 'html.parser')
+            if response.status_code != 200:
+                print(f"Erreur lors de l'accès à la liste des commandes: {response.status_code}")
+                return []
             
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Trouver le tableau des commandes
+            # Le tableau est dans un <tbody> avec des lignes <tr>
             tbody = soup.find('tbody')
             if not tbody:
-                print("   ❌ Tableau non trouvé")
+                print("Tableau des commandes non trouvé")
                 return []
             
             orders = []
             rows = tbody.find_all('tr')
-            print(f"   Lignes trouvées: {len(rows)}")
             
-            for idx, row in enumerate(rows, 1):
+            print(f"Nombre de lignes trouvées: {len(rows)}")
+            
+            for row in rows:
                 try:
                     cells = row.find_all('td')
-                    if len(cells) < 8:
+                    if len(cells) < 8:  # Vérifier qu'il y a suffisamment de colonnes
                         continue
                     
+                    # Extraire les données de chaque colonne
+                    # Basé sur la structure visible dans l'image
                     order = {
-                        'numero': self._extract_text(cells[1]),
-                        'client': self._extract_text(cells[2]),
-                        'livrer_a': self._extract_text(cells[3]),
-                        'creation_le': self._extract_text(cells[4]),
-                        'livrer_le': self._extract_text(cells[5]),
-                        'gln_commande_par': self._extract_text(cells[6]),
-                        'montant_calcule': self._extract_text(cells[7]),
-                        'statut': self._extract_text(cells[8]) if len(cells) > 8 else '',
+                        'numero': self._extract_text(cells[1]),  # Numéro
+                        'client': self._extract_text(cells[2]),  # Client (Auchan France)
+                        'livrer_a': self._extract_text(cells[3]),  # Livrer à (PFI...)
+                        'creation_le': self._extract_text(cells[4]),  # Date de création
+                        'livrer_le': self._extract_text(cells[5]),  # Date de livraison
+                        'gln_commande_par': self._extract_text(cells[6]),  # GLN
+                        'montant_calcule': self._extract_text(cells[7]),  # Montant
+                        'statut': self._extract_text(cells[8]) if len(cells) > 8 else '',  # Statut
                     }
                     
+                    # Ne garder que les commandes avec un numéro valide
                     if order['numero'] and len(order['numero']) > 3:
                         orders.append(order)
-                        
+                
                 except Exception as e:
-                    print(f"   ⚠️ Erreur ligne {idx}: {str(e)}")
+                    print(f"Erreur lors de l'extraction d'une ligne: {str(e)}")
                     continue
             
-            print(f"\n✅ {len(orders)} commandes extraites!")
-            print("=" * 50)
+            print(f"Nombre de commandes extraites: {len(orders)}")
             return orders
             
         except Exception as e:
-            print(f"\n❌ Erreur extraction: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"Erreur lors de l'extraction des commandes: {str(e)}")
             return []
-
+    
     def _extract_text(self, cell) -> str:
-        """Extrait et nettoie le texte d'une cellule"""
+        """
+        Extrait et nettoie le texte d'une cellule
+        Args:
+            cell: Élément BeautifulSoup de la cellule
+        Returns:
+            str: Texte nettoyé
+        """
         if not cell:
             return ""
+        
+        # Récupérer tout le texte et nettoyer
         text = cell.get_text(strip=True)
-        return re.sub(r'\s+', ' ', text)
-
+        
+        # Nettoyer les espaces multiples
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text
+    
     def get_order_details(self, order_number: str) -> Optional[Dict]:
         """
         Récupère les détails d'une commande spécifique
+        Args:
+            order_number: Numéro de la commande
+        Returns:
+            Dict: Détails de la commande
         """
         try:
+            # URL pour voir les détails d'une commande
+            # À adapter selon la structure réelle du site
             detail_url = f"{self.base_url}/gui.php?page=documents_commandes_voir&numero={order_number}"
-            self.page.goto(detail_url, wait_until="domcontentloaded")
-            time.sleep(2)
+            response = self.session.get(detail_url)
             
-            html_content = self.page.content()
-            soup = BeautifulSoup(html_content, 'html.parser')
-            details = {'numero': order_number}
+            if response.status_code != 200:
+                return None
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Extraction des détails (à personnaliser selon vos besoins)
+            details = {
+                'numero': order_number,
+                # Ajouter d'autres champs selon la structure de la page
+            }
             
             return details
             
         except Exception as e:
-            print(f"Erreur détails: {str(e)}")
+            print(f"Erreur lors de la récupération des détails: {str(e)}")
             return None
-
+    
     def close(self):
-        """Ferme le navigateur"""
-        try:
-            if self.page:
-                self.page.close()
-            if self.context:
-                self.context.close()
-            if self.browser:
-                self.browser.close()
-            if self.playwright:
-                self.playwright.stop()
-            print("\n🔒 Navigateur fermé")
-        except Exception as e:
-            print(f"Erreur fermeture: {e}")
+        """
+        Ferme la session
+        """
+        self.session.close()
+
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    # Test du scraper
+    login = "bakfrance@baktat.com"
+    password = "votre_mot_de_passe"
+    
+    scraper = AuchanScraper(login, password)
+    
+    print("Tentative de connexion...")
+    if scraper.login():
+        print("Connexion réussie!")
+        
+        print("\nExtraction des commandes...")
+        orders = scraper.extract_orders()
+        
+        print(f"\nNombre de commandes trouvées: {len(orders)}")
+        
+        if orders:
+            print("\nPremière commande:")
+            for key, value in orders[0].items():
+                print(f"  {key}: {value}")
+    else:
+        print("Échec de la connexion")
+    
+    scraper.close()
