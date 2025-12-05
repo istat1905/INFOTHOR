@@ -88,19 +88,65 @@ class AuchanScraper:
         options.set_preference("general.useragent.override", 
                              "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0")
         
+        # Timeouts de page augmentés
+        options.set_preference("http.response.timeout", 60)
+        options.set_preference("dom.max_script_run_time", 60)
+        
         # Télécharger et installer geckodriver
         geckodriver_path = download_geckodriver()
         
         # Initialisation du driver
         service = Service(executable_path=geckodriver_path)
         self.driver = webdriver.Firefox(service=service, options=options)
+        self.driver.set_page_load_timeout(90)  # 90 secondes pour charger les pages
         self.driver.set_window_size(1920, 1080)
-        self.wait = WebDriverWait(self.driver, 30)  # Augmenté à 30 secondes
+        self.wait = WebDriverWait(self.driver, 30)
+    
+    def is_already_logged_in(self):
+        """
+        Vérifie si l'utilisateur est déjà connecté
+        Returns:
+            bool: True si déjà connecté
+        """
+        try:
+            # Essayer d'aller directement sur la page des commandes
+            self.driver.get("https://auchan.atgpedi.net/gui.php?page=documents_commandes_liste")
+            time.sleep(3)
+            
+            # Si on voit "Liste des commandes", on est connecté
+            if "Liste des commandes" in self.driver.page_source or "documents_commandes_liste" in self.driver.current_url:
+                return True
+            
+            # Si on est redirigé vers login
+            if "login" in self.driver.current_url.lower() or "connexion" in self.driver.page_source.lower():
+                return False
+                
+            return False
+        except:
+            return False
         
     def navigate_to_login(self):
-        """ÉTAPE 1 : Navigation vers la page de connexion"""
-        self.driver.get("https://auchan.atgpedi.net")
-        time.sleep(3)  # Attente initiale augmentée
+        """ÉTAPE 1 : Navigation vers la page de connexion avec retry"""
+        max_retries = 3
+        retry_delay = 5
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"Tentative {attempt + 1}/{max_retries} de connexion au site...")
+                self.driver.get("https://auchan.atgpedi.net")
+                time.sleep(3)  # Attente initiale augmentée
+                
+                # Vérifier si la page a chargé
+                if "auchan" in self.driver.current_url.lower():
+                    break
+                    
+            except Exception as e:
+                print(f"Erreur tentative {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    print(f"Nouvelle tentative dans {retry_delay} secondes...")
+                    time.sleep(retry_delay)
+                else:
+                    raise Exception(f"Impossible de se connecter au site après {max_retries} tentatives")
         
         # Attendre et cliquer sur le bouton SSO @GP
         try:
@@ -155,16 +201,27 @@ class AuchanScraper:
     
     def navigate_to_orders(self):
         """ÉTAPE 3 : Navigation vers la liste des commandes"""
-        # Attendre que la page d'accueil charge
-        self.wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Commandes')]")))
+        # Vérifier si on est déjà sur la page des commandes
+        if "documents_commandes_liste" in self.driver.current_url:
+            print("Déjà sur la page des commandes")
+            return
         
-        # Cliquer sur le menu "Commandes"
-        commandes_link = self.driver.find_element(By.XPATH, "//a[contains(text(), 'Commandes')]")
-        commandes_link.click()
-        
-        # Attendre que la page des commandes charge
-        time.sleep(3)
-        self.wait.until(EC.presence_of_element_located((By.XPATH, "//h1[contains(text(), 'Liste des commandes')]")))
+        try:
+            # Attendre que la page d'accueil charge
+            self.wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Commandes')]")))
+            
+            # Cliquer sur le menu "Commandes"
+            commandes_link = self.driver.find_element(By.XPATH, "//a[contains(text(), 'Commandes')]")
+            commandes_link.click()
+            
+            # Attendre que la page des commandes charge
+            time.sleep(3)
+            self.wait.until(EC.presence_of_element_located((By.XPATH, "//h1[contains(text(), 'Liste des commandes')]")))
+        except:
+            # Si erreur, essayer d'aller directement sur l'URL
+            print("Navigation via menu échouée, accès direct...")
+            self.driver.get("https://auchan.atgpedi.net/gui.php?page=documents_commandes_liste")
+            time.sleep(3)
     
     def reset_filters(self):
         """ÉTAPE 5 : Réinitialiser tous les filtres"""
