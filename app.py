@@ -59,19 +59,26 @@ with col2:
             
             add_log("Firefox démarré avec succès", "success")
             
-            # Connexion
-            add_log("Navigation vers la page de connexion...", "loading")
-            scraper.navigate_to_login()
-            add_log("Page de connexion chargée", "success")
-            
-            add_log("Authentification en cours...", "loading")
-            scraper.login()
-            add_log("Authentification réussie ✓", "success")
-            
-            # Navigation vers commandes
-            add_log("Navigation vers la liste des commandes...", "loading")
-            scraper.navigate_to_orders()
-            add_log("Page des commandes chargée", "success")
+            # Vérifier si déjà connecté
+            add_log("Vérification de la session...", "loading")
+            if scraper.is_already_logged_in():
+                add_log("✅ Déjà connecté ! Pas besoin de login", "success")
+            else:
+                add_log("Session expirée, connexion nécessaire", "info")
+                
+                # Connexion
+                add_log("Navigation vers la page de connexion...", "loading")
+                scraper.navigate_to_login()
+                add_log("Page de connexion chargée", "success")
+                
+                add_log("Authentification en cours...", "loading")
+                scraper.login()
+                add_log("Authentification réussie ✓", "success")
+                
+                # Navigation vers commandes
+                add_log("Navigation vers la liste des commandes...", "loading")
+                scraper.navigate_to_orders()
+                add_log("Page des commandes chargée", "success")
             
             # Réinitialisation des filtres
             add_log("Réinitialisation des filtres...", "loading")
