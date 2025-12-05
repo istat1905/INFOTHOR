@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
+from webdriver_manager.firefox import GeckoDriverManager
 import time
 
 class AuchanScraper:
@@ -37,8 +38,9 @@ class AuchanScraper:
         options.set_preference("general.useragent.override", 
                              "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0")
         
-        # Initialisation du driver
-        self.driver = webdriver.Firefox(options=options)
+        # Initialisation du driver avec webdriver-manager (installe geckodriver automatiquement)
+        service = Service(GeckoDriverManager().install())
+        self.driver = webdriver.Firefox(service=service, options=options)
         self.driver.set_window_size(1920, 1080)
         self.wait = WebDriverWait(self.driver, 30)  # Augmenté à 30 secondes
         
