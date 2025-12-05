@@ -1,355 +1,175 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import json
-import base64
-from streamlit.components.v1 import html
+from scraper import AuchanScraper
+import time
 
-st.set_page_config(page_title="INFOTHOR", page_icon="⚡", layout="wide")
+# Configuration de la page
+st.set_page_config(
+    page_title="INFOTHOR - Extracteur Auchan",
+    page_icon="🦊",
+    layout="wide"
+)
 
-# Style CSS
-st.markdown("""
-<style>
-.main-header {font-size: 2.5rem; color: #E30613; font-weight: bold;}
-</style>
-""", unsafe_allow_html=True)
+# Titre
+st.title("🦊 INFOTHOR - Extracteur de Commandes Auchan")
+st.markdown("---")
 
-st.markdown('<p class="main-header">⚡ INFOTHOR</p>', unsafe_allow_html=True)
+# Zone de logs
+log_container = st.empty()
+logs = []
 
-# Init session
-if 'orders_data' not in st.session_state:
-    st.session_state.orders_data = None
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = None
-if 'auchan_window_opened' not in st.session_state:
-    st.session_state.auchan_window_opened = False
+def add_log(message, status="info"):
+    """Ajoute un log avec timestamp"""
+    timestamp = time.strftime("%H:%M:%S")
+    icon = {
+        "info": "ℹ️",
+        "success": "✅",
+        "warning": "⚠️",
+        "error": "❌",
+        "loading": "⏳"
+    }.get(status, "ℹ️")
+    
+    logs.append(f"[{timestamp}] {icon} {message}")
+    log_container.markdown("\n".join(logs))
 
-# Composant HTML avec communication inter-onglets
-extraction_component = """
-<div style="padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <button id="open-auchan-btn" 
-                style="padding: 15px 30px; font-size: 18px; background: #10b981; 
-                       color: white; border: none; border-radius: 10px; cursor: pointer; 
-                       font-weight: bold; margin-right: 10px;">
-            🌐 1. OUVRIR AUCHAN
-        </button>
+# Bouton d'extraction
+col1, col2, col3 = st.columns([1, 2, 1])
+
+with col2:
+    if st.button("🚀 EXTRAIRE LES COMMANDES", type="primary", use_container_width=True):
+        logs.clear()
         
-        <button id="extract-btn" 
-                style="padding: 15px 30px; font-size: 18px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                       color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold;"
-                disabled>
-            ⚡ 2. EXTRAIRE
-        </button>
-        
-        <button id="debug-btn" 
-                style="padding: 10px 20px; font-size: 14px; background: #f59e0b; 
-                       color: white; border: none; border-radius: 5px; cursor: pointer; 
-                       font-weight: bold; margin-left: 10px;">
-            🔍 DEBUG
-        </button>
-    </div>
-    
-    <div id="status" style="padding: 15px; background: #f3f4f6; border-radius: 10px; 
-                             text-align: center; font-size: 16px; color: #374151;">
-        📋 Cliquez sur "OUVRIR AUCHAN" pour commencer
-    </div>
-    
-    <div id="debug-info" style="margin-top: 20px; padding: 15px; background: #1f2937; 
-                                 color: #10b981; border-radius: 10px; font-family: monospace; 
-                                 font-size: 12px; display: none; max-height: 400px; overflow-y: auto;">
-    </div>
-</div>
-
-<script>
-let auchanWindow = null;
-const openBtn = document.getElementById('open-auchan-btn');
-const extractBtn = document.getElementById('extract-btn');
-const debugBtn = document.getElementById('debug-btn');
-const status = document.getElementById('status');
-const debugInfo = document.getElementById('debug-info');
-
-let logs = [];
-
-function log(message) {
-    const timestamp = new Date().toLocaleTimeString();
-    logs.push(`[${timestamp}] ${message}`);
-    console.log(message);
-    if (debugInfo.style.display !== 'none') {
-        debugInfo.innerHTML = logs.join('<br>');
-        debugInfo.scrollTop = debugInfo.scrollHeight;
-    }
-}
-
-// Toggle debug
-debugBtn.addEventListener('click', () => {
-    if (debugInfo.style.display === 'none') {
-        debugInfo.style.display = 'block';
-        debugInfo.innerHTML = logs.join('<br>');
-        debugBtn.textContent = '🔍 MASQUER DEBUG';
-    } else {
-        debugInfo.style.display = 'none';
-        debugBtn.textContent = '🔍 DEBUG';
-    }
-});
-
-log('✅ Script INFOTHOR chargé');
-
-// Ouvrir l'onglet Auchan
-openBtn.addEventListener('click', () => {
-    log('🌐 Tentative ouverture onglet Auchan...');
-    
-    auchanWindow = window.open(
-        'https://auchan.atgpedi.net/gui.php?page=documents_commandes_liste',
-        'auchan_tab',
-        'noopener,noreferrer'
-    );
-    
-    if (auchanWindow) {
-        log('✅ Onglet ouvert avec succès');
-        status.innerHTML = '✅ Onglet Auchan ouvert !<br>Connectez-vous si nécessaire, puis cliquez sur EXTRAIRE';
-        extractBtn.disabled = false;
-        extractBtn.style.opacity = '1';
-        openBtn.style.opacity = '0.5';
-    } else {
-        log('❌ Échec ouverture - Popups bloqués ?');
-        status.innerHTML = '❌ Erreur: Autorisez les popups pour ce site';
-    }
-});
-
-// Extraire les données
-extractBtn.addEventListener('click', () => {
-    log('⚡ Bouton EXTRAIRE cliqué');
-    
-    if (!auchanWindow || auchanWindow.closed) {
-        log('❌ Onglet Auchan fermé ou inexistant');
-        status.innerHTML = '❌ L\'onglet Auchan est fermé. Cliquez sur OUVRIR AUCHAN.';
-        extractBtn.disabled = true;
-        openBtn.style.opacity = '1';
-        return;
-    }
-    
-    log('🔍 Onglet Auchan vérifié: OK');
-    status.innerHTML = '🔄 Extraction en cours...';
-    extractBtn.disabled = true;
-    
-    // Nettoyer localStorage
-    log('🗑️ Nettoyage localStorage...');
-    localStorage.removeItem('infothor_data');
-    
-    // Envoyer commande d'extraction
-    log('📤 Envoi message à l\'onglet Auchan...');
-    try {
-        auchanWindow.postMessage({
-            action: 'EXTRACT_ORDERS'
-        }, 'https://auchan.atgpedi.net');
-        log('✅ Message envoyé');
-    } catch(e) {
-        log('❌ Erreur envoi message: ' + e.message);
-    }
-    
-    // Polling localStorage
-    let attempts = 0;
-    log('👀 Démarrage surveillance localStorage...');
-    
-    const checkData = setInterval(() => {
-        attempts++;
-        log(`🔄 Tentative ${attempts}/20...`);
-        
-        const data = localStorage.getItem('infothor_data');
-        
-        if (data) {
-            clearInterval(checkData);
-            log('✅ Données trouvées dans localStorage !');
+        try:
+            # Récupération des credentials depuis secrets
+            add_log("Chargement des identifiants...", "loading")
             
-            try {
-                const parsed = JSON.parse(data);
-                log(`📊 Données parsées: ${parsed.orders ? parsed.orders.length : 0} commandes`);
+            email = st.secrets.get("AUCHAN_EMAIL", "")
+            password = st.secrets.get("AUCHAN_PASSWORD", "")
+            
+            if not email or not password:
+                add_log("❌ ERREUR : Identifiants manquants dans les secrets Streamlit", "error")
+                st.error("⚠️ Configurez AUCHAN_EMAIL et AUCHAN_PASSWORD dans les secrets Streamlit")
+                st.stop()
+            
+            add_log("Identifiants chargés avec succès", "success")
+            
+            # Initialisation du scraper
+            add_log("Initialisation du navigateur Firefox...", "loading")
+            scraper = AuchanScraper(email, password, headless=True)
+            
+            add_log("Firefox démarré avec succès", "success")
+            
+            # Connexion
+            add_log("Navigation vers la page de connexion...", "loading")
+            scraper.navigate_to_login()
+            add_log("Page de connexion chargée", "success")
+            
+            add_log("Authentification en cours...", "loading")
+            scraper.login()
+            add_log("Authentification réussie ✓", "success")
+            
+            # Navigation vers commandes
+            add_log("Navigation vers la liste des commandes...", "loading")
+            scraper.navigate_to_orders()
+            add_log("Page des commandes chargée", "success")
+            
+            # Réinitialisation des filtres
+            add_log("Réinitialisation des filtres...", "loading")
+            scraper.reset_filters()
+            add_log("Filtres réinitialisés", "success")
+            
+            # Configuration de la pagination
+            add_log("Configuration : 100 lignes par page...", "loading")
+            scraper.set_pagination(100)
+            add_log("Pagination configurée", "success")
+            
+            # Tri par date de création
+            add_log("Tri par date de création (décroissant)...", "loading")
+            scraper.sort_by_creation_date()
+            add_log("Tri appliqué", "success")
+            
+            # Extraction des données
+            add_log("Extraction des 20 premières commandes...", "loading")
+            data = scraper.extract_orders(limit=20)
+            add_log(f"✅ {len(data)} commandes extraites avec succès !", "success")
+            
+            # Fermeture du navigateur
+            scraper.close()
+            add_log("Navigateur fermé", "info")
+            
+            # Affichage des résultats
+            st.markdown("---")
+            st.subheader(f"📊 Résultats : {len(data)} commandes")
+            
+            if data:
+                df = pd.DataFrame(data)
                 
-                if (parsed.orders && parsed.orders.length > 0) {
-                    status.innerHTML = `✅ ${parsed.orders.length} commandes extraites ! Redirection...`;
-                    
-                    // Envoyer à Streamlit
-                    log('📤 Compression et envoi à Streamlit...');
-                    const compressed = btoa(unescape(encodeURIComponent(JSON.stringify(parsed.orders))));
-                    const currentUrl = window.location.href.split('?')[0];
-                    
-                    log('🔄 Redirection vers Streamlit avec données...');
-                    setTimeout(() => {
-                        window.location.href = currentUrl + '?data=' + encodeURIComponent(compressed);
-                    }, 1000);
-                } else {
-                    log('⚠️ Données vides');
-                    status.innerHTML = '⚠️ Aucune commande trouvée. Êtes-vous sur la bonne page ?';
-                    extractBtn.disabled = false;
-                }
-            } catch(e) {
-                log('❌ Erreur parsing JSON: ' + e.message);
-                status.innerHTML = '❌ Erreur traitement données';
-                extractBtn.disabled = false;
-            }
-        } else if (attempts > 20) {
-            clearInterval(checkData);
-            log('❌ TIMEOUT après 20 tentatives');
-            log('💡 Vérifiez:');
-            log('   - Le script Tampermonkey est bien actif');
-            log('   - Vous êtes sur la page des commandes');
-            log('   - La console de l\'onglet Auchan pour des erreurs');
-            status.innerHTML = '❌ Timeout. Vérifiez que le script Tampermonkey est actif sur l\'onglet Auchan.';
-            extractBtn.disabled = false;
-        }
-    }, 500);
-});
+                # Affichage du tableau
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "numero": st.column_config.TextColumn("Numéro", width="small"),
+                        "client": st.column_config.TextColumn("Client", width="medium"),
+                        "livrer_a": st.column_config.TextColumn("Livrer à", width="medium"),
+                        "creation_le": st.column_config.TextColumn("Création", width="small"),
+                        "livrer_le": st.column_config.TextColumn("Livraison", width="small"),
+                        "gln": st.column_config.TextColumn("GLN", width="medium"),
+                        "montant": st.column_config.NumberColumn("Montant", width="small", format="%.2f €"),
+                        "statut": st.column_config.TextColumn("Statut", width="small")
+                    }
+                )
+                
+                # Bouton de téléchargement CSV
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Télécharger en CSV",
+                    data=csv,
+                    file_name=f"commandes_auchan_{time.strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("Aucune commande trouvée")
+                
+        except Exception as e:
+            add_log(f"❌ ERREUR : {str(e)}", "error")
+            st.error(f"⚠️ Une erreur s'est produite : {str(e)}")
+            
+            # Tentative de fermeture du navigateur en cas d'erreur
+            try:
+                if 'scraper' in locals():
+                    scraper.close()
+            except:
+                pass
 
-// Test localStorage (debug)
-log('🧪 Test localStorage...');
-try {
-    localStorage.setItem('test', 'ok');
-    const test = localStorage.getItem('test');
-    if (test === 'ok') {
-        log('✅ localStorage fonctionne');
-        localStorage.removeItem('test');
-    } else {
-        log('⚠️ localStorage problème lecture');
-    }
-} catch(e) {
-    log('❌ localStorage bloqué: ' + e.message);
-}
-
-// Raccourci clavier
-document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
-        e.preventDefault();
-        log('⌨️ Raccourci Ctrl+Shift+E détecté');
-        if (!extractBtn.disabled) {
-            extractBtn.click();
-        } else {
-            log('⚠️ Bouton EXTRAIRE désactivé');
-        }
-    }
-});
-
-log('🎉 Initialisation terminée');
-</script>
-"""
-
-# Décodage données
-incoming = None
-if "data" in st.query_params:
-    try:
-        compressed = st.query_params["data"]
-        json_string = base64.b64decode(compressed).decode('utf-8')
-        incoming = json.loads(json_string)
-    except:
-        pass
-
-if incoming:
-    st.session_state.orders_data = incoming
-    st.session_state.last_update = datetime.now()
-    st.success(f"✅ {len(incoming)} commandes reçues !")
-    st.balloons()
-    st.query_params.clear()
-    st.rerun()
-
-# Sidebar
+# Informations dans la sidebar
 with st.sidebar:
-    st.header("⚡ INFOTHOR")
-    
-    if st.session_state.last_update:
-        st.success(f"🕐 {st.session_state.last_update.strftime('%H:%M:%S')}")
-        st.metric("📦 Commandes", len(st.session_state.orders_data) if st.session_state.orders_data else 0)
-        
-        if st.button("🔄 Nouvelle extraction", use_container_width=True):
-            st.session_state.orders_data = None
-            st.session_state.last_update = None
-            st.rerun()
-    else:
-        st.info("En attente d'extraction...")
-    
-    st.divider()
-    
+    st.markdown("### ℹ️ À propos")
     st.markdown("""
-    **Instructions:**
-    1. Cliquez "OUVRIR AUCHAN"
-    2. Connectez-vous (si nécessaire)
-    3. Cliquez "EXTRAIRE"
+    **INFOTHOR** est un extracteur automatique de commandes depuis la plateforme Auchan.
     
-    **Raccourci:** Ctrl+Shift+E
+    **Configuration requise :**
+    - Firefox installé
+    - Geckodriver installé
+    - Secrets Streamlit configurés
+    
+    **Secrets nécessaires :**
+    - `AUCHAN_EMAIL`
+    - `AUCHAN_PASSWORD`
     """)
-
-# Affichage données
-if st.session_state.orders_data:
-    df = pd.DataFrame(st.session_state.orders_data)
     
-    # Stats
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("📦 Total", len(df))
-    with col2:
-        if 'montant_calcule' in df.columns:
-            total = df['montant_calcule'].astype(str).str.replace(',', '.').astype(float).sum()
-            st.metric("💰 Montant", f"{total:.2f} €")
-    with col3:
-        if 'client' in df.columns:
-            st.metric("👥 Clients", df['client'].nunique())
-    with col4:
-        if 'livrer_le' in df.columns:
-            pending = len(df[pd.to_datetime(df['livrer_le'], errors='coerce') >= pd.Timestamp.now()])
-            st.metric("🚚 À livrer", pending)
+    st.markdown("---")
+    st.markdown("### 🔧 Fonctionnalités")
+    st.markdown("""
+    - ✅ Connexion automatique
+    - ✅ Reset des filtres
+    - ✅ Pagination (100 lignes)
+    - ✅ Tri par date
+    - ✅ Export CSV
+    - ✅ Logs en temps réel
+    """)
     
-    st.divider()
-    
-    # Filtres
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        clients = ['Tous'] + sorted(df['client'].unique().tolist()) if 'client' in df.columns else ['Tous']
-        client_filter = st.selectbox("Client", clients)
-    
-    with col2:
-        livrer = ['Tous'] + sorted(df['livrer_a'].unique().tolist()) if 'livrer_a' in df.columns else ['Tous']
-        livrer_filter = st.selectbox("Livrer à", livrer)
-    
-    with col3:
-        search = st.text_input("🔍 Recherche")
-    
-    # Filtrage
-    filtered = df.copy()
-    if client_filter != 'Tous':
-        filtered = filtered[filtered['client'] == client_filter]
-    if livrer_filter != 'Tous':
-        filtered = filtered[filtered['livrer_a'] == livrer_filter]
-    if search:
-        mask = filtered.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        filtered = filtered[mask]
-    
-    st.info(f"📊 Affichage: {len(filtered)} / {len(df)}")
-    
-    # Tableau
-    st.dataframe(filtered, use_container_width=True, height=600)
-    
-    # Export
-    st.divider()
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        csv = filtered.to_csv(index=False, encoding='utf-8-sig')
-        st.download_button("📥 CSV", csv, f"infothor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", use_container_width=True)
-    
-    with col2:
-        from io import BytesIO
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            filtered.to_excel(writer, sheet_name='Commandes', index=False)
-        st.download_button("📥 Excel", buffer.getvalue(), f"infothor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx", use_container_width=True)
-    
-    with col3:
-        json_str = filtered.to_json(orient='records', force_ascii=False, indent=2)
-        st.download_button("📥 JSON", json_str, f"infothor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", use_container_width=True)
-
-else:
-    # Interface d'extraction
-    html(extraction_component, height=200)
-
-st.divider()
-st.caption("⚡ INFOTHOR v3.0 - Communication inter-onglets")
+    st.markdown("---")
+    st.markdown("**Version 1.0** | 🦊 Firefox + Selenium")
