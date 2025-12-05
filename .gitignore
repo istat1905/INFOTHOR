@@ -23,9 +23,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Streamlit
-.streamlit/
-*.toml
+# Secrets et configuration
+.env
+.streamlit/secrets.toml
+secrets.toml
 
 # IDE
 .vscode/
@@ -41,12 +42,11 @@ Thumbs.db
 # Logs
 *.log
 
-# Data files
+# Data
 *.csv
 *.xlsx
-*.json
 data/
+exports/
 
-# Environment variables
-.env
-.env.local
+# Selenium
+geckodriver.log
