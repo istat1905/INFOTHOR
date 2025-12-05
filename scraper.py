@@ -40,21 +40,38 @@ class AuchanScraper:
         # Initialisation du driver
         self.driver = webdriver.Firefox(options=options)
         self.driver.set_window_size(1920, 1080)
-        self.wait = WebDriverWait(self.driver, 20)
+        self.wait = WebDriverWait(self.driver, 30)  # Augmenté à 30 secondes
         
     def navigate_to_login(self):
         """ÉTAPE 1 : Navigation vers la page de connexion"""
         self.driver.get("https://auchan.atgpedi.net")
-        time.sleep(2)
+        time.sleep(3)  # Attente initiale augmentée
         
         # Attendre et cliquer sur le bouton SSO @GP
         try:
-            sso_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'base_sso_openid_connect_authentifier')]"))
-            )
-            sso_button.click()
-            time.sleep(2)
-        except:
+            # Essayer plusieurs sélecteurs possibles
+            sso_button = None
+            selectors = [
+                "//a[contains(@href, 'base_sso_openid_connect_authentifier')]",
+                "//button[contains(text(), 'identifier')]",
+                "//a[contains(text(), 'identifier')]"
+            ]
+            
+            for selector in selectors:
+                try:
+                    sso_button = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    if sso_button:
+                        break
+                except:
+                    continue
+            
+            if sso_button:
+                sso_button.click()
+                time.sleep(3)
+        except Exception as e:
+            print(f"Avertissement navigation SSO: {e}")
             # Peut-être déjà sur la page de login
             pass
     
