@@ -5,8 +5,58 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
-from webdriver_manager.firefox import GeckoDriverManager
 import time
+import os
+import stat
+import requests
+import tarfile
+import shutil
+
+import tarfile
+import shutil
+
+def download_geckodriver():
+    """
+    Télécharge et installe geckodriver sans passer par l'API GitHub
+    """
+    # Version fixe de geckodriver
+    version = "0.34.0"
+    geckodriver_url = f"https://github.com/mozilla/geckodriver/releases/download/v{version}/geckodriver-v{version}-linux64.tar.gz"
+    
+    # Créer un dossier pour geckodriver
+    driver_dir = os.path.expanduser("~/.geckodriver")
+    os.makedirs(driver_dir, exist_ok=True)
+    
+    geckodriver_path = os.path.join(driver_dir, "geckodriver")
+    
+    # Si déjà téléchargé, on le retourne
+    if os.path.exists(geckodriver_path):
+        return geckodriver_path
+    
+    # Télécharger
+    tar_path = os.path.join(driver_dir, "geckodriver.tar.gz")
+    
+    print(f"Téléchargement de geckodriver v{version}...")
+    response = requests.get(geckodriver_url, stream=True)
+    response.raise_for_status()
+    
+    with open(tar_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+    
+    # Extraire
+    print("Extraction de geckodriver...")
+    with tarfile.open(tar_path, 'r:gz') as tar:
+        tar.extractall(driver_dir)
+    
+    # Rendre exécutable
+    os.chmod(geckodriver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    
+    # Nettoyer
+    os.remove(tar_path)
+    
+    print(f"✅ Geckodriver installé : {geckodriver_path}")
+    return geckodriver_path
 
 class AuchanScraper:
     """
@@ -38,8 +88,11 @@ class AuchanScraper:
         options.set_preference("general.useragent.override", 
                              "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0")
         
-        # Initialisation du driver avec webdriver-manager (installe geckodriver automatiquement)
-        service = Service(GeckoDriverManager().install())
+        # Télécharger et installer geckodriver
+        geckodriver_path = download_geckodriver()
+        
+        # Initialisation du driver
+        service = Service(executable_path=geckodriver_path)
         self.driver = webdriver.Firefox(service=service, options=options)
         self.driver.set_window_size(1920, 1080)
         self.wait = WebDriverWait(self.driver, 30)  # Augmenté à 30 secondes
